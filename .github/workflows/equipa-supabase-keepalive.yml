@@ -1,0 +1,79 @@
+name: Equipa Supabase keepalive
+
+on:
+  schedule:
+    # Executa no máximo a cada 5 dias. O horário é UTC.
+    - cron: '23 10 */5 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: equipa-supabase-keepalive
+  cancel-in-progress: false
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Atualizar atividade mínima do Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CONFIG="assets/js/config.js"
+          SUPABASE_URL="$(sed -n 's/.*supabaseUrl: "\([^"]*\)".*/\1/p' "$CONFIG" | head -n1)"
+          SUPABASE_KEY="$(sed -n 's/.*supabasePublishableKey: "\([^"]*\)".*/\1/p' "$CONFIG" | head -n1)"
+
+          if [[ -z "$SUPABASE_URL" || -z "$SUPABASE_KEY" ]]; then
+            echo "Configuração pública do Supabase não encontrada em $CONFIG."
+            exit 1
+          fi
+
+          NOW="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          ENDPOINT="$SUPABASE_URL/rest/v1/equipa_keepalive?id=eq.1"
+
+          # A RLS do banco só permite atualizar o timestamp quando o último
+          # heartbeat tem pelo menos 4 dias. Execuções manuais repetidas não
+          # ficam martelando o PostgreSQL sem necessidade.
+          PATCH_STATUS="$(curl --silent --show-error --retry 3 --retry-all-errors \
+            --connect-timeout 10 --max-time 25 \
+            --output /tmp/equipa-keepalive-patch.json \
+            --write-out '%{http_code}' \
+            --request PATCH \
+            --header "apikey: $SUPABASE_KEY" \
+            --header 'Content-Type: application/json' \
+            --header 'Prefer: return=minimal' \
+            --data "{\"last_ping\":\"$NOW\"}" \
+            "$ENDPOINT")"
+
+          if [[ "$PATCH_STATUS" != "200" && "$PATCH_STATUS" != "204" ]]; then
+            echo "Keepalive PATCH falhou com HTTP $PATCH_STATUS"
+            cat /tmp/equipa-keepalive-patch.json || true
+            exit 1
+          fi
+
+          # Faz também leituras reais pela Data API. O endpoint contém apenas
+          # id/marker/last_ping e não expõe inventário, usuários ou histórico.
+          for attempt in 1 2 3; do
+            READ_STATUS="$(curl --silent --show-error --retry 2 --retry-all-errors \
+              --connect-timeout 10 --max-time 25 \
+              --output /tmp/equipa-keepalive-read.json \
+              --write-out '%{http_code}' \
+              --header "apikey: $SUPABASE_KEY" \
+              "$SUPABASE_URL/rest/v1/equipa_keepalive?select=id,last_ping&id=eq.1&limit=1")"
+
+            if [[ "$READ_STATUS" != "200" ]]; then
+              echo "Keepalive GET $attempt falhou com HTTP $READ_STATUS"
+              cat /tmp/equipa-keepalive-read.json || true
+              exit 1
+            fi
+            sleep 2
+          done
+
+          echo "Keepalive do Equipa concluído em $NOW."
