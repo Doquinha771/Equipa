@@ -7,5 +7,5 @@ assert 'equipa_keepalive' in w
 assert 'supabasePublishableKey' in w
 assert 'sb_secret_' not in w
 assert 'service_role' not in w.lower()
-assert 'version: "0.3.4 Alpha"' in c
+assert 'version: "0.4.0 Alpha"' in c
 print('keepalive static checks: ok')

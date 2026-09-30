@@ -185,6 +185,7 @@ function confirmAction({ title = "Confirmar ação", message, confirmText = "Con
     const modal = makeModal(`<div class="confirm-box"><span class="confirm-symbol ${danger ? "danger" : ""}">${danger ? "!" : "?"}</span><div><span class="eyebrow">Equipa</span><h2>${esc(title)}</h2><p>${esc(message || "Confirme para continuar.")}</p></div></div><div class="modal-actions confirm-actions"><button class="button" type="button" data-confirm-no>${esc(cancelText)}</button><button class="button ${danger ? "danger-solid" : "primary"}" type="button" data-confirm-yes>${esc(confirmText)}</button></div>`);
     let settled = false;
     const finish = value => { if (settled) return; settled = true; modal.remove(); resolve(value); };
+    qs("[data-close]", modal)?.addEventListener("click", () => finish(false));
     qs("[data-confirm-no]", modal)?.addEventListener("click", () => finish(false));
     qs("[data-confirm-yes]", modal)?.addEventListener("click", () => finish(true));
     modal.addEventListener("click", e => { if (e.target === modal) finish(false); });
@@ -196,6 +197,36 @@ function setBusy(button, busy, text = "Aguarde…") {
   else { button.textContent = button.dataset.old || button.textContent; button.disabled = false; }
 }
 function closeModal(modal) { modal?.remove(); }
+
+// One lifecycle per dialog, including programmatic removal by existing flows.
+function manageDialog(back) {
+  const dialog = back.querySelector('[role="dialog"]');
+  if (!dialog) return;
+  const previous = document.activeElement;
+  const controller = new AbortController();
+  const focusable = () => [...dialog.querySelectorAll('button,input,select,textarea,a[href],[tabindex="0"]')].filter(el => !el.disabled && el.getClientRects().length && !el.closest("[hidden],.hidden"));
+  dialog.tabIndex = -1;
+  const heading = dialog.querySelector("h2,h1");
+  if (heading) { heading.id ||= `dialog-title-${++manageDialog.count}`; dialog.setAttribute("aria-labelledby", heading.id); }
+  document.body.classList.add("dialog-open");
+  back.addEventListener("keydown", e => {
+    if ([...document.querySelectorAll(".modal-backdrop")].at(-1) !== back) return;
+    if (e.key === "Escape") { const close = dialog.querySelector("[data-close],[data-confirm-no]"); if (close) { e.preventDefault(); close.click(); } }
+    if (e.key !== "Tab") return;
+    const nodes = focusable(); const first = nodes[0] || dialog; const last = nodes.at(-1) || dialog;
+    if (!nodes.length || (e.shiftKey && (document.activeElement === first || document.activeElement === dialog))) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (document.activeElement === last || document.activeElement === dialog)) { e.preventDefault(); first.focus(); }
+  }, {signal: controller.signal});
+  requestAnimationFrame(() => { if(back.isConnected) dialog.focus({preventScroll:true}); });
+  const observer = new MutationObserver(() => {
+    if (back.isConnected) return;
+    observer.disconnect(); controller.abort();
+    if (!document.querySelector(".modal-backdrop")) document.body.classList.remove("dialog-open");
+    if (previous?.isConnected) previous.focus({preventScroll:true});
+  });
+  observer.observe(document.body, {childList:true});
+}
+manageDialog.count = 0;
 function makeModal(html, wide = false) {
   const back = document.createElement("div");
   back.className = "modal-backdrop";
@@ -206,6 +237,7 @@ function makeModal(html, wide = false) {
   closeButton.setAttribute('aria-label','Fechar janela');closeButton.title='Fechar janela';
   closeButton.textContent='×';qs('.modal',back).prepend(closeButton);
   document.body.append(back);
+  manageDialog(back);
   qsa("[data-close]", back).forEach(b => b.addEventListener("click", () => closeModal(back)));
   back.addEventListener("click", e => { if (e.target === back) closeModal(back); });
   return back;
@@ -474,9 +506,10 @@ function shell(content) {
     </aside>
     <button type="button" class="mobile-sidebar-shade" id="mobile-sidebar-shade" aria-label="Fechar menu lateral" tabindex="-1"></button>
     <section class="main">
+      <div class="mobile-app-heading"><div><span>Equipa</span><h1>${esc(pageTitle())}</h1></div><span class="mobile-account-badge" aria-label="Perfil: ${esc(roleLabel(state.profile?.role))}">${esc(firstName().slice(0,1).toUpperCase())}</span></div>
       <header class="topbar">
         
-        <form class="global-search" id="global-search-form" role="search">${uiIcon("search",18)}<input id="global-search" type="search" value="${esc(currentGlobalSearchValue())}" placeholder="Pesquisar equipamento, turma, aluno ou manutenção..." autocomplete="off"><kbd>Ctrl K</kbd></form>
+        <form class="global-search" id="global-search-form" role="search">${uiIcon("search",18)}<input id="global-search" type="search" value="${esc(currentGlobalSearchValue())}" aria-label="Pesquisar nesta página" placeholder="Buscar equipamento ou pessoa" autocomplete="off"><kbd>Ctrl K</kbd></form>
         <div class="topbar-right"><button type="button" class="topbar-tool" id="topbar-alerts" aria-label="Abrir notificações" aria-haspopup="dialog" aria-expanded="false">${uiIcon("bell",21)}<i hidden></i></button><button type="button" class="topbar-tool" id="topbar-theme" aria-label="Alternar tema">${uiIcon(document.documentElement.dataset.theme === "dark" ? "moon" : "sun",21)}</button><div class="topbar-divider"></div><div class="school-identification"><span>${uiIcon("school",23)}</span><div><strong>E.E. Amador e Catharina</strong><small>Equipa · Gestão escolar</small></div></div></div>
       </header>
       <main class="content view-${esc(state.view)}" aria-label="${esc(pageTitle())}">${content}</main><footer class="equipa-watermark">feito pela equipe da coordenação da escola e 3-A do ensino médio</footer>
@@ -514,7 +547,7 @@ function shell(content) {
   qs("#mobile-more-close")?.addEventListener("click", closeMobileMore);
   qs("#mobile-more-backdrop")?.addEventListener("click", e => { if (e.target?.id === "mobile-more-backdrop") closeMobileMore(); });
   document.addEventListener("keydown", function mobileShellEscape(e){
-    if(e.key!=="Escape" || !qs(".app-shell")){document.removeEventListener("keydown",mobileShellEscape);return}
+    if(e.key!=="Escape" || !qs(".app-shell"))return;
     if(qs("#mobile-more-backdrop")?.classList.contains("open")){closeMobileMore();return}
     if(qs("#sidebar")?.classList.contains("open"))setMobileSidebar(false);
   },{signal:equipaShellAbort.signal});
@@ -651,8 +684,10 @@ async function toggleEquipaNotifications(){
 }
 
 function nav(view, label) { return `<button type="button" class="nav-button ${state.view === view ? "active" : ""}" data-view="${view}" title="${esc(label)}" aria-label="${esc(label)}"><span class="nav-symbol">${uiIcon(view,20)}</span><span class="nav-label">${esc(label)}</span></button>`; }
-function mobileNav(view,label){return `<button type="button" class="mobile-nav-item ${state.view===view?"active":""}" data-view="${view}">${uiIcon(view,19)}<small>${esc(label)}</small></button>`;}
+function mobileNav(view,label){return `<button type="button" class="mobile-nav-item ${state.view===view?"active":""}" ${state.view===view?'aria-current="page"':""} data-view="${view}">${uiIcon(view,19)}<small>${esc(label)}</small></button>`;}
 async function navigate(view) {
+  if (view === "reservations") view = "withdrawals";
+  window.scrollTo({top:0,behavior:"instant"});
   state.view = view; qs("#sidebar")?.classList.remove("open");document.body.classList.remove("mobile-sidebar-open","mobile-overlay-open");
   if (view === "equipment") {await renderEquipment();setupSmartInputs(app);return;}
   if (view === "withdrawals") {await renderWithdrawals();setupSmartInputs(app);return;}
@@ -729,7 +764,7 @@ async function renderDashboard() {
 
   <section class="mobile-dashboard-organic" aria-label="Visão geral mobile">
     <header class="mobile-home-hero">
-      <div class="mobile-home-eyebrow"><span>Hoje</span><small>${esc(today)}</small></div>
+      <div class="mobile-home-eyebrow"><span>Visão geral</span><small>${esc(today)}</small></div>
       <div class="mobile-home-greeting"><h1>Olá, ${esc(firstName())}</h1><span>${esc(roleLabel(state.profile.role))}</span></div>
       <div class="mobile-home-health">
         <div class="mobile-health-copy"><strong>${Number(available).toLocaleString("pt-BR")}</strong><span>disponíveis de ${Number(total).toLocaleString("pt-BR")}</span><small>${availablePct}% do inventário pronto para uso</small></div>
@@ -740,7 +775,7 @@ async function renderDashboard() {
 
     ${overdue?`<button class="logistics-overdue" type="button" data-overdue-alert><strong>${overdue} retirada(s) atrasada(s)</strong><span>Consultar pendências</span></button>`:""}
     <section class="mobile-flow-section mobile-now">
-      <div class="mobile-section-title"><div><span>AGORA</span><h2>O que está acontecendo</h2></div></div>
+      <div class="mobile-section-title"><div><span>AGORA</span><h2>Situação atual</h2></div></div>
       <div class="mobile-stat-flow">
         <button class="mobile-stat-pill" data-go="withdrawals" type="button"><span class="mobile-stat-icon">${icon("withdrawals")}</span><div><strong>${Number(inUse).toLocaleString("pt-BR")}</strong><span>Em uso</span><small>${pendingReturns} para devolver</small></div></button>
         <button class="mobile-stat-pill ${maintenance ? 'attention' : ''}" data-go="${admin?"maintenance":"equipment"}" type="button"><span class="mobile-stat-icon">${icon("maintenance")}</span><div><strong>${Number(maintenance).toLocaleString("pt-BR")}</strong><span>Manutenção</span><small>${maintenance ? 'Exigem atenção' : 'Tudo certo'}</small></div></button>
