@@ -3,15 +3,23 @@ if (!supabase || !config) throw new Error("Cliente Supabase não inicializado.")
 
 const app = document.querySelector("#app");
 const EQUIPA_THEME_KEY = "equipa-visual-theme";
+<<<<<<< HEAD
 try {
   const stored = localStorage.getItem(EQUIPA_THEME_KEY);
   document.documentElement.dataset.theme = stored ? (stored === "dark" ? "dark" : "light") : (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 }
+=======
+try { document.documentElement.dataset.theme = localStorage.getItem(EQUIPA_THEME_KEY) === "dark" ? "dark" : "light"; }
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
 catch { document.documentElement.dataset.theme = "light"; }
 function setEquipaTheme(theme) {
   const dark = theme === "dark";
   document.documentElement.dataset.theme = dark ? "dark" : "light";
+<<<<<<< HEAD
   document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute("content", dark ? "#0b0d10" : "#f3f4f6"));
+=======
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#111c2e" : "#f5f8fd");
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
   const toggle = qs("#topbar-theme");
   if (toggle) {
     toggle.innerHTML = uiIcon(dark ? "moon" : "sun",21);
@@ -279,6 +287,7 @@ async function checkAvailabilitySilently() {
   if (check !== availabilityCheckGeneration || !qs("#auth-card")) return;
   if (!info.ok) renderAvailabilityError(info);
 }
+<<<<<<< HEAD
 function brandMark(size = 28) {
   return `<svg class="brand-glyph" width="${size}" height="${size}" viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="9" fill="currentColor"/><path d="M10 10.5h12M10 16h9M10 21.5h12" stroke="var(--brand-ink, #fff)" stroke-width="2.6" stroke-linecap="round"/></svg>`;
 }
@@ -290,11 +299,73 @@ function authErrorMessage(event) {
 }
 function bindPasswordToggles(root) {
   qsa("[data-password-toggle]", root).forEach(button => button.addEventListener("click", () => {
+=======
+function renderAuth(scan = null) {
+  const book = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M23 12c-5.3-4.2-11.7-5.2-17-2.7a2.4 2.4 0 0 0-1.4 2.2v22.3c0 1.4 1.3 2.5 2.7 2.2 5.6-1.2 10.7.2 15.7 4.1V12Zm2 0c5.3-4.2 11.7-5.2 17-2.7a2.4 2.4 0 0 1 1.4 2.2v22.3c0 1.4-1.3 2.5-2.7 2.2-5.6-1.2-10.7.2-15.7 4.1V12Z" fill="currentColor"/><path d="M23 40V14m2 26V14M7 40c5.9-1.7 11-.5 16 2m18-2c-5.9-1.7-11-.5-16 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+  app.innerHTML = `
+  <main class="auth-shell">
+    <section class="auth-brand" aria-label="Sobre o Equipa">
+      <div class="brandline auth-identity"><span class="auth-brand-icon">${book}</span><span class="auth-identity-copy"><strong>Equipa</strong><small>EQUIPAMENTOS ESCOLARES</small></span></div>
+      <div class="auth-brand-copy">
+        <h1>Controle de<br>equipamentos escolares</h1>
+        <p>Organize retiradas e devoluções em um só lugar.</p>
+        <ul class="auth-benefits" aria-label="Recursos do Equipa">
+          <li><span>${uiIcon("qr",26)}</span>Identificação por QR Code</li>
+          <li><span>${uiIcon("withdrawals",26)}</span>Controle de retiradas e devoluções</li>
+          <li><span>${uiIcon("reports",26)}</span>Histórico de utilização</li>
+        </ul>
+      </div>
+      <span class="auth-brand-bottom" aria-hidden="true"></span>
+    </section>
+    <section class="auth-side">
+      <div class="auth-card" id="auth-card">
+        <div class="auth-heading"><h2 id="auth-heading">Entrar na sua conta</h2><p id="auth-intro">Use sua conta escolar para acessar o Equipa.</p></div>
+        ${scan ? `<div class="scan-preview"><span>QR reconhecido · ${esc(scan.kind === "cart" ? "Carrinho" : "Equipamento")}</span><strong>${esc(scan.display_name)}</strong><span>${scan.model ? `${esc(scan.brand || "")} ${esc(scan.model)}` : `${Number(scan.item_count || 0)} equipamento(s)`}</span>${scan.status ? `<span class="status status-${esc(scan.status)}">${esc(statusLabel(scan.status))}</span>` : ""}</div>` : ""}
+        <form id="login-form" class="auth-form">
+          <label for="login-email">E-mail escolar</label>
+          <div class="auth-input-wrap">${uiIcon("mail",20)}<input id="login-email" type="email" name="email" placeholder="exemplo@al.educacao.sp.gov.br" autocomplete="email" inputmode="email" required></div>
+          <label for="login-password">Senha</label>
+          <div class="auth-input-wrap">${uiIcon("lock",20)}<input id="login-password" type="password" name="password" placeholder="Digite sua senha" autocomplete="current-password" minlength="6" required><button type="button" class="auth-password-toggle" data-password-toggle="login-password" aria-label="Mostrar senha" aria-pressed="false" title="Mostrar senha">${uiIcon("eye-off",20)}</button></div>
+          <button class="button primary full auth-submit" type="submit">Entrar ${uiIcon("arrow",20)}</button>
+          <div class="auth-login-options"><label class="auth-remember" for="login-remember"><input id="login-remember" type="checkbox"><span>Lembrar de mim</span></label><button class="link-button" id="forgot" type="button">Esqueci minha senha</button></div>
+        </form>
+        <form id="signup-form" class="auth-form hidden">
+          <label for="signup-name">Nome completo</label><div class="auth-input-wrap">${uiIcon("user",20)}<input id="signup-name" type="text" autocomplete="name" minlength="3" maxlength="120" placeholder="Seu nome completo" required></div>
+          <label for="signup-email">E-mail escolar</label><div class="auth-input-wrap">${uiIcon("mail",20)}<input id="signup-email" type="email" autocomplete="email" inputmode="email" placeholder="exemplo@al.educacao.sp.gov.br" required></div>
+          <label for="signup-password">Senha</label><div class="auth-input-wrap">${uiIcon("lock",20)}<input id="signup-password" type="password" autocomplete="new-password" minlength="8" placeholder="Crie uma senha com 8 caracteres ou mais" required><button type="button" class="auth-password-toggle" data-password-toggle="signup-password" aria-label="Mostrar senha" aria-pressed="false" title="Mostrar senha">${uiIcon("eye-off",20)}</button></div>
+          <label class="check auth-terms"><input id="signup-terms" type="checkbox" required><span>Li os <button class="link-button" data-legal="terms" type="button">Termos de Uso</button> e a <button class="link-button" data-legal="privacy" type="button">Política de Privacidade</button>.</span></label>
+          <button class="button primary full auth-submit" type="submit">Criar conta ${uiIcon("arrow",20)}</button>
+        </form>
+        <div class="auth-switch"><div class="auth-separator" aria-hidden="true"><span>ou</span></div><button class="button full auth-create" data-tab="signup" type="button">${uiIcon("user-plus",20)} Criar conta</button><button class="link-button auth-back hidden" data-tab="login" type="button">${uiIcon("arrow-left",18)} Voltar para entrar</button></div>
+        <div class="auth-help">${uiIcon("info",19)}<span>Use seu e-mail institucional da escola.<br>Caso não possua uma conta, solicite à secretaria.</span></div>
+      </div>
+    </section>
+  </main>`;
+
+  void checkAvailabilitySilently();
+  qsa("[data-tab]", qs("#auth-card")).forEach(btn => btn.addEventListener("click", () => {
+    const card = qs("#auth-card");
+    const isLogin = btn.dataset.tab === "login";
+    card?.classList.remove("switching");
+    void card?.offsetWidth;
+    card?.classList.add("switching");
+    qs("#login-form")?.classList.toggle("hidden", !isLogin);
+    qs("#signup-form")?.classList.toggle("hidden", isLogin);
+    qs(".auth-create", card)?.classList.toggle("hidden", !isLogin);
+    qs(".auth-separator", card)?.classList.toggle("hidden", !isLogin);
+    qs(".auth-back", card)?.classList.toggle("hidden", isLogin);
+    qs("#auth-heading").textContent = isLogin ? "Entrar na sua conta" : "Criar sua conta";
+    qs("#auth-intro").textContent = isLogin ? "Use sua conta escolar para acessar o Equipa." : "Cadastre-se com seu e-mail escolar.";
+    setTimeout(() => card?.classList.remove("switching"), 220);
+  }));
+  qsa("[data-password-toggle]", qs("#auth-card")).forEach(button => button.addEventListener("click", () => {
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
     const input = document.getElementById(button.dataset.passwordToggle);
     if (!input) return;
     const showing = input.type === "password";
     input.type = showing ? "text" : "password";
     button.setAttribute("aria-label", showing ? "Ocultar senha" : "Mostrar senha");
+<<<<<<< HEAD
     button.setAttribute("aria-pressed", String(showing));
     button.innerHTML = uiIcon(showing ? "eye" : "eye-off", 19);
     input.focus({ preventScroll: true });
@@ -357,10 +428,19 @@ function renderAuth(scan = null, urlEvent = null) {
   qsa("[data-tab]", card).forEach(btn => btn.addEventListener("click", () => setTab(btn.dataset.tab)));
   bindPasswordToggles(card);
   qsa("[data-legal]", card).forEach(btn => btn.addEventListener("click", () => openLegal(btn.dataset.legal)));
+=======
+    button.setAttribute("title", showing ? "Ocultar senha" : "Mostrar senha");
+    button.setAttribute("aria-pressed", String(showing));
+    button.innerHTML = uiIcon(showing ? "eye" : "eye-off", 20);
+    input.focus({ preventScroll: true });
+  }));
+  qsa("[data-legal]", qs("#auth-card")).forEach(btn => btn.addEventListener("click", () => openLegal(btn.dataset.legal)));
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
 
   qs("#login-form").addEventListener("submit", async e => {
     e.preventDefault(); const b = qs('button[type="submit"]', e.currentTarget); setBusy(b, true, "Entrando…");
     const { error } = await supabase.auth.signInWithPassword({ email: qs("#login-email").value.trim(), password: qs("#login-password").value, remember: qs("#login-remember").checked });
+<<<<<<< HEAD
     setBusy(b, false);
     if (error) notify(/email not confirmed/i.test(error.message) ? "Confirme seu e-mail antes de entrar. Verifique a caixa de entrada e o spam." : errText(error), "error");
   });
@@ -424,6 +504,22 @@ function renderPasswordReset(session) {
     notify("Senha alterada.", "success");
     showBootLoader();
     initSession(session).catch(renderStartupError);
+=======
+    setBusy(b, false); if (error) { if (b.isConnected) b.innerHTML = `Entrar ${uiIcon("arrow",20)}`; notify(errText(error), "error"); }
+  });
+  qs("#signup-form").addEventListener("submit", async e => {
+    e.preventDefault(); const b = qs('button[type="submit"]', e.currentTarget); setBusy(b, true, "Criando…");
+    const { data, error } = await supabase.auth.signUp({ email: qs("#signup-email").value.trim(), password: qs("#signup-password").value, options: { data: { full_name: qs("#signup-name").value.trim() } } });
+    setBusy(b, false); if (error) { if (b.isConnected) b.innerHTML = `Criar conta ${uiIcon("arrow",20)}`; return notify(errText(error), "error"); }
+    if (data.session) await supabase.rpc("accept_legal_documents", { p_terms_version: config.legalTermsVersion, p_privacy_version: config.privacyVersion });
+    notify(data.session ? "Conta criada." : "Conta criada. Confirme o e-mail para entrar.", "success");
+    if (!data.session) qs('[data-tab="login"]', qs("#auth-card"))?.click();
+  });
+  qs("#forgot").addEventListener("click", async () => {
+    const email = qs("#login-email").value.trim(); if (!email) return notify("Digite seu e-mail primeiro.", "warning");
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}${location.pathname}` });
+    notify(error ? errText(error) : "Instruções de recuperação enviadas.", error ? "error" : "success");
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
   });
 }
 function legalDocument(kind) {
@@ -495,7 +591,11 @@ async function loadProfile() {
   state.profile = data;
 }
 function pageTitle() {
+<<<<<<< HEAD
   return ({ dashboard: "Visão geral", equipment: "Inventário", withdrawals: "Retiradas", history: "Histórico", carts: "Carrinhos", maintenance: "Manutenção", reports: "Relatórios", admin: "Administração", audit: "Auditoria" })[state.view] || "Equipa";
+=======
+  return ({ dashboard: "Visão geral", equipment: "Equipamentos", withdrawals: "Retiradas", history: "Histórico", carts: "Carrinhos", maintenance: "Manutenção", reports: "Relatórios", admin: "Administração", audit: "Auditoria" })[state.view] || "Equipa";
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
 }
 function firstName() { return (state.profile?.full_name || "Usuário").trim().split(/\s+/)[0] || "Usuário"; }
 function greeting() {
@@ -542,6 +642,7 @@ const UI_GLYPHS = {
  warning:'<path d="m12 3 10 18H2zM12 9v5m0 3h.01"/>',
  lightning:'<path d="m13 2-9 11h7l-1 9 10-12h-7z"/>',
  check:'<path d="M5 12l5 5L20 7"/>',
+<<<<<<< HEAD
  logout:'<path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5M14 7l5 5-5 5M9 12h10"/>',
  laptop:'<rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/>',
  tablet:'<rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
@@ -562,6 +663,11 @@ const UI_GLYPHS = {
 };
 function groupIcon(group, size = 20) { return uiIcon(group === "tablet" ? "tablet" : group === "outro" ? "box" : "laptop", size); }
 function uiIcon(name, size=19) { const p=UI_GLYPHS[name]||UI_GLYPHS.grid;return `<svg class="ui-icon" aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`; }
+=======
+ logout:'<path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5M14 7l5 5-5 5M9 12h10"/>'
+};
+function uiIcon(name, size=19) { const p=UI_GLYPHS[name]||UI_GLYPHS.grid;return `<svg class="ui-icon" aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`; }
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
 function icon(name){return uiIcon(name);}
 
 function cleanupTransientUi(){closeContextMenu?.();qs("#filter-mobile-shade")?.remove();closeEquipaNotifications();qsa("body > .filter-drawer").forEach(el=>el.remove());document.body.classList.remove("filter-sheet-open","mobile-overlay-open","mobile-sidebar-open");}
@@ -572,6 +678,7 @@ function shell(content) {
   equipaShellAbort=new AbortController();
   cleanupTransientUi();
   const admin = state.profile?.role === "admin";
+<<<<<<< HEAD
   const dark = document.documentElement.dataset.theme === "dark";
   const initial = esc(firstName().slice(0,1).toUpperCase());
   const mobileMoreItems = `${nav("carts","Carrinhos")}${nav("history","Histórico")}${admin ? nav("maintenance","Manutenção") + nav("reports","Relatórios") + nav("audit","Auditoria") + nav("admin","Administração") : ""}`;
@@ -602,6 +709,31 @@ function shell(content) {
       <div class="mobile-more-list">${mobileMoreItems}</div>
       <div class="mobile-sheet-row"><button class="mobile-sheet-theme" id="mobile-sheet-theme" type="button">${uiIcon(dark ? "sun" : "moon",19)}<span>${dark ? "Modo claro" : "Modo escuro"}</span></button><button class="mobile-sheet-logout" id="mobile-sheet-logout" type="button">${uiIcon("logout",19)}<span>Sair</span></button></div>
     </section></div>
+=======
+  const mobileMoreItems = `${nav("history","Histórico")}${nav("carts","Carrinhos")}${admin ? nav("maintenance","Manutenção") + nav("reports","Relatórios") + nav("audit","Auditoria") + nav("admin","Administração") : ""}`;
+  app.innerHTML = `<div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand" title="Equipa"><div class="brand-copy"><strong>Equipa</strong><span>Gestão escolar</span></div></div>
+      <nav class="nav" aria-label="Navegação principal">
+        ${nav("dashboard","Início")}${nav("equipment","Equipamentos")}${nav("withdrawals","Retiradas")}${nav("history","Histórico")}${nav("carts","Carrinhos")}${admin ? nav("maintenance","Manutenção") + nav("reports","Relatórios") + nav("audit","Auditoria") + nav("admin","Administração") : ""}
+      </nav>
+      <div class="sidebar-user"><div class="sidebar-user-avatar" aria-hidden="true">${esc(firstName().slice(0,1).toUpperCase())}</div><div class="sidebar-user-copy"><strong>${esc(state.profile?.full_name||"Usuário")}</strong><span>${esc(roleLabel(state.profile?.role))}</span></div></div><button class="logout-button" id="logout" title="Sair da conta" aria-label="Sair">${uiIcon("logout",18)}<span>Sair</span></button>
+    </aside>
+    <button type="button" class="mobile-sidebar-shade" id="mobile-sidebar-shade" aria-label="Fechar menu lateral" tabindex="-1"></button>
+    <section class="main">
+      <div class="mobile-app-heading"><div><span>Equipa</span><h1>${esc(pageTitle())}</h1></div><span class="mobile-account-badge" aria-label="Perfil: ${esc(roleLabel(state.profile?.role))}">${esc(firstName().slice(0,1).toUpperCase())}</span></div>
+      <header class="topbar">
+        
+        <form class="global-search" id="global-search-form" role="search">${uiIcon("search",18)}<input id="global-search" type="search" value="${esc(currentGlobalSearchValue())}" aria-label="Pesquisar nesta página" placeholder="Buscar equipamento ou pessoa" autocomplete="off"><kbd>Ctrl K</kbd></form>
+        <div class="topbar-right"><button type="button" class="topbar-tool" id="topbar-alerts" aria-label="Abrir notificações" aria-haspopup="dialog" aria-expanded="false">${uiIcon("bell",21)}<i hidden></i></button><button type="button" class="topbar-tool" id="topbar-theme" aria-label="Alternar tema">${uiIcon(document.documentElement.dataset.theme === "dark" ? "moon" : "sun",21)}</button><div class="topbar-divider"></div><div class="school-identification"><span>${uiIcon("school",23)}</span><div><strong>E.E. Amador e Catharina</strong><small>Equipa · Gestão escolar</small></div></div></div>
+      </header>
+      <main class="content view-${esc(state.view)}" aria-label="${esc(pageTitle())}">${content}</main><footer class="equipa-watermark">feito pela equipe da coordenação da escola e 3-A do ensino médio</footer>
+    </section>
+    <nav class="mobile-tabbar" aria-label="Navegação do aplicativo">
+      ${mobileNav("dashboard","Início")}${mobileNav("equipment","Equipamentos")}<button class="mobile-nav-item mobile-qr-action" id="mobile-qr-scan" type="button" aria-label="Ler QR Code"><span class="mobile-qr-icon">${uiIcon("qr",20)}</span><small>Ler QR</small></button>${mobileNav("withdrawals","Retiradas")}<button class="mobile-nav-item mobile-more-action ${["history","carts","maintenance","reports","audit","admin"].includes(state.view)?"active":""}" id="mobile-more" type="button" aria-haspopup="dialog" aria-expanded="false">${uiIcon("grid",20)}<small>Mais</small></button>
+    </nav>
+    <div class="mobile-more-backdrop" id="mobile-more-backdrop"><section class="mobile-more-sheet" role="dialog" aria-modal="true" aria-label="Outras páginas"><div class="mobile-sheet-handle"></div><div class="mobile-sheet-head"><div><span>Mais opções</span><strong>Equipa</strong></div><button class="icon-button" id="mobile-more-close" type="button">×</button></div><div class="mobile-more-list">${mobileMoreItems}</div><button class="mobile-sheet-theme" id="mobile-sheet-theme" type="button" aria-label="Alternar tema visual">${uiIcon(document.documentElement.dataset.theme === "dark" ? "sun" : "moon",20)}<span>${document.documentElement.dataset.theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"}</span></button><button class="mobile-sheet-logout" id="mobile-sheet-logout" type="button"><span>Sair da conta</span></button></section></div>
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
   </div>`;
   qsa("[data-view]").forEach(b => b.addEventListener("click", () => navigate(b.dataset.view)));
   const setMobileSidebar = (open) => {
@@ -619,14 +751,19 @@ function shell(content) {
   qs("#topbar-theme")?.setAttribute("aria-pressed",String(document.documentElement.dataset.theme === "dark"));
   refreshEquipaNotificationBadge().catch(()=>{});
   const closeMobileMore = () => {qs("#mobile-more-backdrop")?.classList.remove("open");document.body.classList.remove("mobile-overlay-open");qs("#mobile-more")?.setAttribute("aria-expanded","false")};
+<<<<<<< HEAD
   const openMobileMore = () => {qs("#mobile-more-backdrop")?.classList.add("open");document.body.classList.add("mobile-overlay-open");qs("#mobile-more")?.setAttribute("aria-expanded","true")};
   qs("#mobile-more")?.addEventListener("click", openMobileMore);
   qs("#mobile-account")?.addEventListener("click", openMobileMore);
+=======
+  qs("#mobile-more")?.addEventListener("click", () => {qs("#mobile-more-backdrop")?.classList.add("open");document.body.classList.add("mobile-overlay-open");qs("#mobile-more")?.setAttribute("aria-expanded","true")});
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
   qs("#mobile-sheet-theme")?.addEventListener("click", () => {
     setEquipaTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
     const themeButton = qs("#mobile-sheet-theme");
     if (themeButton) {
       const dark = document.documentElement.dataset.theme === "dark";
+<<<<<<< HEAD
       themeButton.innerHTML = `${uiIcon(dark ? "sun" : "moon",19)}<span>${dark ? "Modo claro" : "Modo escuro"}</span>`;
     }
   });
@@ -634,6 +771,11 @@ function shell(content) {
     document.documentElement.dataset.searchHotkey = "1";
     document.addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k" && qs("#global-search")) { e.preventDefault(); qs("#global-search").focus(); } });
   }
+=======
+      themeButton.innerHTML = `${uiIcon(dark ? "sun" : "moon",20)}<span>${dark ? "Ativar modo claro" : "Ativar modo escuro"}</span>`;
+    }
+  });
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
   qs("#mobile-more-close")?.addEventListener("click", closeMobileMore);
   qs("#mobile-more-backdrop")?.addEventListener("click", e => { if (e.target?.id === "mobile-more-backdrop") closeMobileMore(); });
   document.addEventListener("keydown", function mobileShellEscape(e){
@@ -792,6 +934,7 @@ async function navigate(view) {
 }
 function metric(label, value, view) { return `<button class="metric" type="button" data-go="${view}"><span>${esc(label)}</span><strong>${Number(value || 0).toLocaleString("pt-BR")}</strong><small>Abrir detalhes</small></button>`; }
 
+<<<<<<< HEAD
 function relativeDue(value){
   if(!value)return "Sem prazo";
   const diff=new Date(value).getTime()-Date.now();
@@ -817,6 +960,23 @@ function renderMobileMovementJourney(r){
     <span class="m-move-body"><strong>${esc(owner)}</strong><small>${esc(r.class_name||"Sem turma")} · ${Number(r.pending_count||0)} de ${Number(r.total_count||0)} pendente(s)</small></span>
     <span class="m-move-due ${st}">${esc(st==="returned"?"Devolvida":relativeDue(r.due_at))}</span>
   </button>`;
+=======
+function renderDashboardMovementRows(rows){
+ if(!rows?.length)return '<div class="ops-empty">Nenhuma retirada recente.</div>';
+ return `<div class="withdrawal-list">${rows.map(r=>{const status=withdrawalStatus(r),info=withdrawalSummary(r);return `<button type="button" class="withdrawal-card ${status==='overdue'?'late':status==='returned'?'returned':'open'}" data-withdrawal-id="${esc(r.withdrawal_id)}"><span class="withdrawal-card-top"><strong>${esc(r.class_name||"Sem turma")}</strong><span class="withdrawal-card-status ${status==='overdue'?'late':status==='returned'?'returned':'open'}">${esc(status==='overdue'?"Atrasada":statusLabel(r.status))}</span></span><span class="withdrawal-card-details"><span><small>EM POSSE DE</small><b>${esc(info.receiver)}</b></span><span><small>DESTINO</small><b>${esc(r.destination||"Não informado")}</b></span><span><small>MOTIVO</small><b>${esc(info.reason)}</b></span></span><span class="withdrawal-card-foot">${esc(r.returned_at?`Devolvida em ${dt(r.returned_at)}`:r.due_at?`Prevista para ${dt(r.due_at)}`:`Retirada em ${dt(r.withdrawn_at)}`)}</span></button>`}).join("")}</div>`;
+}
+function renderMobileMovementJourney(r){
+  const returned=r.status==="returned" || Boolean(r.returned_at);
+  const overdue=!returned && r.due_at && new Date(r.due_at).getTime()<Date.now();
+  const owner=r.custodian_name||r.responsible_name||"Recebedor não identificado";
+  const reason=r.checkout_purpose?withdrawalPurposeLabel(r.checkout_purpose):"Motivo não informado";
+  const progress=returned?"complete":overdue?"late":"active";
+  return `<article class="delivery-journey ${progress}"><header><div><small>RETIRADA #${esc(r.withdrawal_id)}</small><strong>${esc(r.class_name||"Turma não informada")} · ${esc(r.destination||"Destino não informado")}</strong></div><span class="journey-pill ${progress}">${returned?"Devolvida":overdue?"Atrasada":"Em uso"}</span></header>
+    <ol class="delivery-steps"><li class="done"><i aria-hidden="true"></i><div><strong>Retirada registrada</strong><small>${esc(dt(r.withdrawn_at))} · ${esc(r.recorded_by_name||r.responsible_name||"Conta responsável")}</small></div></li>
+    <li class="${returned?"done":"current"}"><i aria-hidden="true"></i><div><strong>${returned?"Equipamento utilizado":"Com o responsável"}</strong><small>${esc(owner)} · ${esc(reason)} · ${Number(r.pending_count||0)} de ${Number(r.total_count||0)} pendente(s)</small></div></li>
+    <li class="${returned?"done":overdue?"late":"upcoming"}"><i aria-hidden="true"></i><div><strong>${returned?"Devolução concluída":overdue?"Devolução atrasada":"Próxima etapa: devolução"}</strong><small>${esc(returned?dt(r.returned_at):r.due_at?`Prevista para ${dt(r.due_at)}`:"Sem prazo informado no registro antigo")}</small></div></li></ol>
+    <button class="journey-detail" type="button" data-withdrawal-id="${esc(r.withdrawal_id)}">Ver detalhes e equipamentos ${uiIcon("arrow",16)}</button></article>`;
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
 }
 async function renderDashboard() {
   state.view = "dashboard";
@@ -846,6 +1006,7 @@ async function renderDashboard() {
   const recentExtra=recentIds.length ? await supabase.from("withdrawals").select("id,due_at,custodian_name,custodian_role,recorded_by_name,checkout_purpose,purpose_details").in("id",recentIds) : {data:[]};
   const recentDetails=new Map((recentExtra.data||[]).map(x=>[String(x.id),x]));
   const recentMobile = (current || []).slice(0,4).map(x=>({...x,...(recentDetails.get(String(x.withdrawal_id))||{})}));
+<<<<<<< HEAD
   const unavailable=Math.max(0,total-available-inUse-maintenance);
   const unavailablePct=Math.max(0,100-availablePct-inUsePct-maintenancePct);
   const fmt=n=>Number(n||0).toLocaleString("pt-BR");
@@ -894,11 +1055,55 @@ async function renderDashboard() {
     </div>
     <section class="m-section"><div class="m-section-head"><h3>Em uso agora</h3><button type="button" data-open="withdrawals">Ver tudo</button></div>
       <div class="m-list">${recentMobile.length ? recentMobile.map(renderMobileMovementJourney).join("") : `<div class="mobile-empty-state">${uiIcon("inbox",26)}<strong>Nenhum equipamento fora</strong><small>As retiradas em aberto aparecem aqui.</small></div>`}</div>
+=======
+  shell(`<section class="equipa-ref-home desktop-dashboard">
+    <header class="ref-welcome"><div class="ref-welcome-main"><div class="ref-welcome-title"><span aria-hidden="true" class="ref-wave">👋</span><div><h1>Olá, ${esc(state.profile?.full_name||firstName())}</h1></div></div></div><div class="ref-welcome-date"><strong>${esc(new Intl.DateTimeFormat("pt-BR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"}).format(new Date()))}</strong></div></header>
+    <section class="ref-kpi-grid" aria-label="Indicadores da escola">
+      <button class="ref-kpi ref-kpi-green" data-go="equipment" type="button"><div class="ref-kpi-head"><span class="ref-kpi-icon">${uiIcon("equipment",23)}</span><span class="ref-kpi-change">↗ ${availablePct}%</span></div><strong class="ref-kpi-number">${Number(available).toLocaleString("pt-BR")}</strong><b>Disponíveis</b><small>${availablePct}% do inventário</small></button>
+      <button class="ref-kpi ref-kpi-blue" data-go="withdrawals" type="button"><div class="ref-kpi-head"><span class="ref-kpi-icon">${uiIcon("carts",23)}</span><span class="ref-kpi-change">${pendingReturns} pendente(s)</span></div><strong class="ref-kpi-number">${Number(inUse).toLocaleString("pt-BR")}</strong><b>Em uso</b><small>Equipamentos atualmente retirados</small></button>
+      <button class="ref-kpi ref-kpi-orange" data-go="${admin?"maintenance":"equipment"}" type="button"><div class="ref-kpi-head"><span class="ref-kpi-icon">${uiIcon("maintenance",23)}</span><span class="ref-kpi-change">${maintenancePct}%</span></div><strong class="ref-kpi-number">${Number(maintenance).toLocaleString("pt-BR")}</strong><b>Manutenção</b><small>Equipamentos em manutenção</small></button>
+    </section>
+    ${overdue?`<button class="logistics-overdue" type="button" data-overdue-alert><strong>${overdue} retirada(s) atrasada(s)</strong><span>Consultar devoluções pendentes ${uiIcon("arrow",16)}</span></button>`:""}
+    <div class="ref-data-grid">
+      <section class="ref-panel ref-movements"><div class="ref-panel-title"><span class="ref-panel-icon">${uiIcon("history",21)}</span><div><h2>Movimentações recentes</h2><p>Últimas ações realizadas no sistema</p></div><button class="ref-outline-action" data-open="withdrawals" type="button">Ver todas ${uiIcon("arrow",15)}</button></div><div class="ref-movement-body">${(current||[]).length?renderDashboardMovementRows((current||[]).slice(0,5)):`<div class="ref-empty-movements"><span class="ref-empty-icon">${uiIcon("inbox",48)}</span><strong>Nenhuma retirada encontrada.</strong><p>As movimentações compatíveis com seu perfil aparecem aqui.</p><button type="button" data-open="equipment" class="ref-dark-action">Registrar movimentação ${uiIcon("arrow",15)}</button></div>`}</div></section>
+      <section class="ref-panel ref-distribution"><div class="ref-panel-title"><span class="ref-panel-icon">${uiIcon("pie",21)}</span><div><h2>Situação dos equipamentos</h2><p>Visão geral do inventário</p></div><button class="ref-outline-action" data-open="equipment" type="button">Abrir inventário</button></div><div class="ref-distribution-body"><div class="ref-ring" role="img" aria-label="${availablePct}% disponíveis, ${inUsePct}% em uso, ${maintenancePct}% em manutenção" style="--ring-available:${availablePct}%;--ring-use:${availablePct+inUsePct}%;--ring-maint:${availablePct+inUsePct+maintenancePct}%"><div class="ref-ring-center"><strong>${Number(total).toLocaleString("pt-BR")}</strong><span>total</span></div></div><div class="ref-ring-legend"><div><i class="legend-green"></i><span>Disponíveis</span><b>${available}</b><small>${availablePct}%</small></div><div><i class="legend-blue"></i><span>Em uso</span><b>${inUse}</b><small>${inUsePct}%</small></div><div><i class="legend-yellow"></i><span>Atrasadas</span><b>${overdue}</b><small>atenção</small></div><div><i class="legend-red"></i><span>Manutenção</span><b>${maintenance}</b><small>${maintenancePct}%</small></div></div></div></section>
+      <section class="ref-panel ref-actions"><div class="ref-panel-title"><span class="ref-panel-icon">${uiIcon("lightning",21)}</span><div><h2>Ações rápidas</h2><p>Acesse as principais funções do sistema</p></div></div><div class="ref-actions-grid">${admin?`<button type="button" class="ref-action ref-action-blue" id="ref-add-equipment"><span>${uiIcon("equipment",21)}</span><strong>Adicionar equipamento</strong><small>Cadastrar novo dispositivo</small>${uiIcon("arrow",15)}</button>`:""}<button type="button" class="ref-action ref-action-green" data-open="equipment"><span>${uiIcon("withdrawals",21)}</span><strong>Registrar retirada</strong><small>Iniciar uma nova retirada</small>${uiIcon("arrow",15)}</button>${admin?`<button type="button" class="ref-action ref-action-orange" data-open="maintenance"><span>${uiIcon("maintenance",21)}</span><strong>Abrir manutenção</strong><small>Registrar manutenção</small>${uiIcon("arrow",15)}</button>`:""}</div></section>
+      <section class="ref-panel ref-alerts"><div class="ref-panel-title"><span class="ref-panel-icon icon-alert">${uiIcon("bell",21)}</span><div><h2>Alertas e lembretes</h2><p>Fique atento às pendências</p></div></div><div class="ref-alerts-body">${overdue?`<button class="ref-alert-action" type="button" data-overdue-alert>${uiIcon("warning",27)}<strong>${overdue} retirada(s) atrasada(s)</strong><span>Consulte as devoluções pendentes</span></button>`:`<div class="ref-no-alert">${uiIcon("bell",28)}<strong>Nenhum alerta no momento.</strong><span>Tudo certo por aqui!</span></div>`}</div></section>
+    </div>
+  </section>
+
+  <section class="mobile-dashboard-organic" aria-label="Visão geral mobile">
+    <header class="mobile-home-hero">
+      <div class="mobile-home-eyebrow"><span>Visão geral</span><small>${esc(today)}</small></div>
+      <div class="mobile-home-greeting"><h1>Olá, ${esc(firstName())}</h1><span>${esc(roleLabel(state.profile.role))}</span></div>
+      <div class="mobile-home-health">
+        <div class="mobile-health-copy"><strong>${Number(available).toLocaleString("pt-BR")}</strong><span>disponíveis de ${Number(total).toLocaleString("pt-BR")}</span><small>${availablePct}% do inventário pronto para uso</small></div>
+        <div class="mobile-health-ring" style="--health:${availablePct * 3.6}deg"><div><strong>${availablePct}%</strong><span>livre</span></div></div>
+      </div>
+      <div class="mobile-home-progress" aria-hidden="true"><i style="width:${availablePct}%"></i><i class="use" style="width:${inUsePct}%"></i><i class="maint" style="width:${maintenancePct}%"></i></div>
+    </header>
+
+    ${overdue?`<button class="logistics-overdue" type="button" data-overdue-alert><strong>${overdue} retirada(s) atrasada(s)</strong><span>Consultar pendências</span></button>`:""}
+    <section class="mobile-flow-section mobile-now">
+      <div class="mobile-section-title"><div><span>AGORA</span><h2>Situação atual</h2></div></div>
+      <div class="mobile-stat-flow">
+        <button class="mobile-stat-pill" data-go="withdrawals" type="button"><span class="mobile-stat-icon">${icon("withdrawals")}</span><div><strong>${Number(inUse).toLocaleString("pt-BR")}</strong><span>Em uso</span><small>${pendingReturns} para devolver</small></div></button>
+        <button class="mobile-stat-pill ${maintenance ? 'attention' : ''}" data-go="${admin?"maintenance":"equipment"}" type="button"><span class="mobile-stat-icon">${icon("maintenance")}</span><div><strong>${Number(maintenance).toLocaleString("pt-BR")}</strong><span>Manutenção</span><small>${maintenance ? 'Exigem atenção' : 'Tudo certo'}</small></div></button>
+      </div>
+    </section>
+
+    <section class="mobile-flow-section mobile-activity-feed">
+      <div class="mobile-section-title"><div><span>ATIVIDADE</span><h2>Movimentações recentes</h2></div><button type="button" data-open="withdrawals">Ver todas</button></div>
+      <div class="mobile-activity-list">
+        ${recentMobile.length ? recentMobile.map(renderMobileMovementJourney).join("") : `<div class="mobile-empty-state"><span>${icon("history")}</span><strong>Nenhuma movimentação agora</strong><small>As próximas retiradas vão aparecer aqui.</small></div>`}
+      </div>
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
     </section>
   </section>`);
 
   qsa("[data-go],[data-open]").forEach(b => b.addEventListener("click", () => navigate(b.dataset.go || b.dataset.open)));
   qsa("[data-withdrawal-id]").forEach(b=>b.addEventListener("click",()=>openWithdrawalDetail(b.dataset.withdrawalId)));
+<<<<<<< HEAD
   qs("#ov-add-equipment")?.addEventListener("click",()=>window.EquipaInventory?.openHub("individual"));
   qs("#m-add")?.addEventListener("click",()=>window.EquipaInventory?.openHub("individual"));
   qs("#ov-labels")?.addEventListener("click",()=>window.EquipaInventory?.chooseLabels());
@@ -906,6 +1111,9 @@ async function renderDashboard() {
   qs("#m-checkout")?.addEventListener("click",openCheckoutEquipmentPicker);
   qs("#m-scan")?.addEventListener("click",openMobileQrScanner);
   qs("#m-return")?.addEventListener("click",()=>{state.withdrawalsStatus="in_use";navigate("withdrawals")});
+=======
+  qs("#ref-add-equipment")?.addEventListener("click",()=>window.EquipaInventory?.openHub("individual"));
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
 }
 // Menu flutuante único: coordenadas de viewport e delegação para linhas recriadas por busca/paginação.
 let activeContextTrigger = null;
@@ -1001,7 +1209,11 @@ function contextActionIcon(name){
 function bindEquipmentContextMenus(){ /* contexto tratado por delegação global */ }
 function equipmentRows(rows) {
   if(!rows.length)return `<div class="empty ref-inventory-empty">${uiIcon("inbox",34)}<strong>Nenhum equipamento encontrado.</strong><span>Altere os filtros para consultar o inventário.</span></div>`;
+<<<<<<< HEAD
   return `<div class="ref-inventory-table-wrap asset-list"><div class="asset-head"><span><input type="checkbox" id="equip-select-all" aria-label="Selecionar equipamentos desta página"></span><span>Equipamento</span><span>Patrimônio</span><span>Localização</span><span>Situação</span><span>Atualizado</span><span></span></div>${rows.map(e=>`<div class="equipment-row asset-row ${e.is_active===false?"inactive":""}" data-equipment="${esc(e.id)}" tabindex="0" role="button" aria-label="${esc(e.code)} · ${esc(statusLabel(e.status))}"><span class="asset-check"><input type="checkbox" class="equip-row-select" value="${esc(e.id)}" aria-label="Selecionar ${esc(e.code)}"></span><span class="asset-id"><span class="asset-icon s-${esc(e.status)}">${groupIcon(e.school_group,19)}</span><span class="asset-name"><strong class="mono">${esc(e.code)}</strong><small>${esc([e.model,e.label].filter(Boolean).join(" · ")||schoolGroupLabel(e.school_group))}</small></span></span><span class="asset-tag mono ${e.asset_tag?"":"none"}">${esc(e.asset_tag||"—")}</span><span class="asset-loc">${esc(e.location_text||"—")}</span><span class="asset-status"><span class="pill pill-${esc(e.status)}">${esc(statusLabel(e.status))}</span></span><span class="asset-date">${esc(dateOnly(e.updated_at))}</span><span class="asset-menu"><button type="button" class="ref-row-more" data-item-menu="${esc(e.id)}" aria-haspopup="menu" aria-expanded="false" aria-label="Ações de ${esc(e.code)}">${uiIcon("more",18)}</button></span></div>`).join("")}</div>`;
+=======
+  return `<div class="ref-inventory-table-wrap"><table class="ref-inventory-table"><thead><tr><th><input type="checkbox" id="equip-select-all" aria-label="Selecionar equipamentos desta página"></th><th>CÓDIGO</th><th>PATRIMÔNIO</th><th>MODELO</th><th>LOCALIZAÇÃO</th><th>SITUAÇÃO</th><th>ÚLTIMA ATIVIDADE</th><th>AÇÕES</th></tr></thead><tbody>${rows.map(e=>`<tr class="equipment-row" data-equipment="${esc(e.id)}" tabindex="0"><td><input type="checkbox" class="equip-row-select" value="${esc(e.id)}" aria-label="Selecionar ${esc(e.code)}"></td><td><div class="ref-equipment-cell"><span class="ref-equipment-icon">${uiIcon("equipment",19)}</span><div><strong>${esc(e.code)}</strong><small>${esc(e.label||schoolGroupLabel(e.school_group))}</small></div></div></td><td>${e.asset_tag?`<span class="ref-patrimony">${esc(e.asset_tag)}</span>`:`<span class="ref-patrimony ref-none">Não definido</span>`}</td><td>${esc(e.model||"Não informado")}</td><td><span class="ref-location">${uiIcon("tag",14)}${esc(e.location_text||"Não informada")}</span></td><td><span class="ref-state ref-state-${esc(e.status)}"><i></i>${esc(statusLabel(e.status))}</span></td><td>${esc(dt(e.updated_at))}</td><td><button type="button" class="ref-row-more" data-item-menu="${esc(e.id)}" aria-haspopup="menu" aria-expanded="false" aria-label="Ações de ${esc(e.code)}" title="Ações de ${esc(e.code)}">⋮</button></td></tr>`).join("")}</tbody></table></div>`;
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
 }
 
 function bindEquipmentRowClicks(root = document) { qsa("[data-equipment]", root).forEach(r => {r.addEventListener("click",e=>{if(e.target.closest("input,[data-item-menu]"))return;openEquipment(r.dataset.equipment)});r.addEventListener("keydown",e=>{if(e.target===r&&(e.key==="Enter"||e.key===" ")){e.preventDefault();openEquipment(r.dataset.equipment)}})}); bindEquipmentContextMenus(root); }
@@ -1290,10 +1502,15 @@ async function renderEquipment() {
   const from = state.equipmentPage * config.pageSize;
   const to = from + config.pageSize - 1;
   const filterCount = activeFilterCount([state.equipmentFilters.status, state.equipmentFilters.active==="active" ? "" : state.equipmentFilters.active, state.equipmentFilters.group]);
+<<<<<<< HEAD
   const statusChips=[["","Todos"],["available","Disponíveis"],["in_use","Em uso"],["maintenance","Manutenção"],["unavailable","Indisponíveis"]].map(([v,l])=>`<button type="button" class="chip ${state.equipmentFilters.status===v?"selected":""}" data-status-chip="${v}">${l}</button>`).join("");
   shell(`<section class="ref-equipment-page"><div class="ref-page-heading compact-page-actions"><h1 class="visually-hidden">Inventário</h1><div class="ref-heading-actions">${admin?`<button class="button" id="inventory-labels">${uiIcon("tag",17)} Etiquetas</button><button class="button" id="import-equipment">${uiIcon("upload",17)} Importar</button><button class="button primary" id="new-equipment">${uiIcon("add",17)} Cadastrar</button>`:""}</div></div>
   <div class="ref-search-panel"><div class="ref-search-line"><label class="ref-search-control">${uiIcon("search",18)}<input class="search" id="equipment-search" type="search" value="${esc(state.equipmentSearch)}" placeholder="Código, patrimônio, modelo ou local"></label><button class="ref-filter-action" id="equipment-filter-toggle" type="button" aria-expanded="true" aria-label="Filtros">${uiIcon("filter",17)}<span>Filtros</span>${filterBadge(filterCount)}</button><button type="button" class="button ghost desktop-only" id="equipment-reset">${uiIcon("rotate",16)} Limpar</button></div>
   <div class="chip-row" role="group" aria-label="Filtrar por situação">${statusChips}</div><div class="filter-drawer ref-equipment-filters" id="equipment-filter-panel"><div class="filter-grid"><label>Situação<select id="equipment-status"><option value="">Todas</option><option value="available" ${state.equipmentFilters.status==='available'?'selected':''}>Disponível</option><option value="in_use" ${state.equipmentFilters.status==='in_use'?'selected':''}>Em uso</option><option value="maintenance" ${state.equipmentFilters.status==='maintenance'?'selected':''}>Manutenção</option><option value="unavailable" ${state.equipmentFilters.status==='unavailable'?'selected':''}>Indisponível</option></select></label><label>Tipo<select id="equipment-group"><option value="">Todos</option>${schoolGroupOptions(state.equipmentFilters.group)}</select></label><label>Localização<input id="equipment-location" value="${esc(state.equipmentFilters.location||"")}" placeholder="Todas as localizações"></label><label>Modelo<input id="equipment-model-filter" value="${esc(state.equipmentFilters.model||"")}" placeholder="Todos os modelos"></label><label class="ref-hidden-active">Catálogo<select id="equipment-active"><option value="active" ${state.equipmentFilters.active==='active'?'selected':''}>Ativos</option><option value="">Todos</option><option value="inactive" ${state.equipmentFilters.active==='inactive'?'selected':''}>Inativos</option></select></label></div><div class="filter-actions"><button type="button" class="button small ghost" id="equipment-filter-clear">Limpar</button><button type="button" class="button small primary" id="equipment-filter-apply">Aplicar filtros</button></div></div></div>
+=======
+  shell(`<section class="ref-equipment-page"><div class="ref-page-heading compact-page-actions"><h1 class="visually-hidden">Equipamentos</h1><div class="ref-heading-actions">${admin?`<button class="ref-outline-action" id="inventory-labels">${uiIcon("tag",18)} Etiquetas PDF</button><button class="ref-outline-action" id="import-equipment">${uiIcon("upload",18)} Importar</button><button class="ref-primary-action" id="new-equipment">${uiIcon("plus",19)} Cadastrar equipamento</button>`:""}</div></div>
+  <div class="ref-search-panel"><div class="ref-search-line"><label class="ref-search-control">${uiIcon("search",20)}<input class="search" id="equipment-search" type="search" value="${esc(state.equipmentSearch)}" placeholder="Buscar por código, patrimônio, modelo, localização ou situação..."></label><button type="button" class="ref-outline-action" id="equipment-reset">${uiIcon("rotate",17)} Limpar filtros</button><button class="ref-filter-action" id="equipment-filter-toggle" type="button" aria-expanded="true">${uiIcon("filter",17)} Filtros ${filterBadge(filterCount)}</button></div><div class="filter-drawer ref-equipment-filters" id="equipment-filter-panel"><div class="filter-grid"><label>Situação<select id="equipment-status"><option value="">Todas</option><option value="available" ${state.equipmentFilters.status==='available'?'selected':''}>Disponível</option><option value="in_use" ${state.equipmentFilters.status==='in_use'?'selected':''}>Em uso</option><option value="maintenance" ${state.equipmentFilters.status==='maintenance'?'selected':''}>Manutenção</option><option value="unavailable" ${state.equipmentFilters.status==='unavailable'?'selected':''}>Indisponível</option></select></label><label>Tipo<select id="equipment-group"><option value="">Todos</option>${schoolGroupOptions(state.equipmentFilters.group)}</select></label><label>Localização<input id="equipment-location" value="${esc(state.equipmentFilters.location||"")}" placeholder="Todas as localizações"></label><label>Modelo<input id="equipment-model-filter" value="${esc(state.equipmentFilters.model||"")}" placeholder="Todos os modelos"></label><label class="ref-hidden-active">Catálogo<select id="equipment-active"><option value="active" ${state.equipmentFilters.active==='active'?'selected':''}>Ativos</option><option value="">Todos</option><option value="inactive" ${state.equipmentFilters.active==='inactive'?'selected':''}>Inativos</option></select></label></div><div class="filter-actions"><button type="button" class="button small ghost" id="equipment-filter-clear">Limpar</button><button type="button" class="button small primary" id="equipment-filter-apply">Aplicar filtros</button></div></div></div>
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
   <section class="ref-results-panel"><header class="ref-results-heading"><strong id="equipment-count">Consultando equipamentos...</strong><div class="ref-display-controls"><button id="equipment-label-selected" type="button" class="ref-outline-action" hidden>PDF dos selecionados</button><button type="button" class="ref-display-button active" id="equip-list-view" aria-label="Visualização em lista">${uiIcon("list",19)}</button><button type="button" class="ref-display-button" id="equip-grid-view" aria-label="Visualização em grade">${uiIcon("grid",19)}</button><select id="equipment-sort" aria-label="Ordenar equipamentos"><option value="code">Código</option><option value="recent">Mais recentes</option></select></div></header><div id="equipment-results"><div class="loading">Carregando equipamentos…</div></div></section></section>`);
   const host = qs("#equipment-results");
   const search = cleanSearch(state.equipmentSearch);
@@ -1349,8 +1566,11 @@ async function renderEquipment() {
   qsa(".equip-row-select",host).forEach(cb=>{cb.addEventListener("click",e=>e.stopPropagation());cb.addEventListener("change",updateSelectedLabels)});
   qs("#equip-select-all")?.addEventListener("change",updateSelectedLabels);
   qs("#equipment-label-selected")?.addEventListener("click",()=>{const ids=new Set(qsa(".equip-row-select:checked",host).map(cb=>cb.value));const chosen=rows.filter(row=>ids.has(row.id));if(chosen.length)window.EquipaInventory?.downloadLabels(chosen,"Equipa-etiquetas-selecionadas")});
+<<<<<<< HEAD
   qsa("[data-status-chip]").forEach(chip=>chip.addEventListener("click",()=>{state.equipmentFilters.status=chip.dataset.statusChip;state.equipmentPage=0;renderEquipment()}));
   if(admin&&!qs("#equipment-fab")){qs(".content")?.insertAdjacentHTML("beforeend",`<button class="fab" id="equipment-fab" type="button" aria-label="Cadastrar equipamento">${uiIcon("add",24)}</button>`);qs("#equipment-fab")?.addEventListener("click",()=>window.EquipaInventory.openHub("individual"));}
+=======
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
   qs("#new-equipment")?.addEventListener("click",()=>window.EquipaInventory.openHub("individual"));
   qs("#inventory-labels")?.addEventListener("click",()=>window.EquipaInventory.chooseLabels());
   qs("#import-equipment")?.addEventListener("click",()=>window.EquipaInventory.openHub("import"));
@@ -1359,6 +1579,7 @@ async function getEquipment(id) { const { data, error } = await supabase.from("e
 async function openEquipment(id) {
   let e; try { e = await getEquipment(id); } catch(error) { return notify(errText(error),"error"); }
   const admin = state.profile.role === "admin";
+<<<<<<< HEAD
   const specs=[e.processor,e.ram_gb?`${e.ram_gb} GB RAM`:"",e.storage_gb?`${e.storage_gb} GB`:"",e.operating_system].filter(Boolean).join(" · ");
   const primary=e.status==="available"&&e.is_active?`<button class="button primary full" data-checkout type="button">${uiIcon("checkout",18)} Registrar retirada</button>`:e.status==="in_use"?`<button class="button primary full" data-return type="button">${uiIcon("return",18)} Registrar devolução</button>`:"";
   const modal = makeModal(`<div class="asset-sheet">
@@ -1378,6 +1599,9 @@ async function openEquipment(id) {
       <div class="asset-tools"><button class="tool-button" data-qr type="button">${uiIcon("qr",19)}<span>QR Code</span></button>${admin && !["in_use","maintenance"].includes(e.status)?`<button class="tool-button" data-maintenance type="button">${uiIcon("maintenance",19)}<span>Manutenção</span></button>`:""}${admin?`<button class="tool-button" data-edit type="button">${uiIcon("edit-pen",19)}<span>Editar</span></button><button class="tool-button danger" data-delete type="button">${uiIcon("trash",19)}<span>Apagar</span></button>`:""}</div>
     </div></div>`, true);
   modal.classList.add("asset-modal");
+=======
+  const modal = makeModal(`<div class="panel-head"><div><span class="eyebrow">${esc(e.code)}</span><h2>${esc(e.label || `${e.brand} ${e.model}`)}</h2></div><button class="icon-button" data-close>×</button></div><div class="modal-body"><div class="detail-grid">${detail("Estado",statusLabel(e.status))}${detail("Grupo",schoolGroupLabel(e.school_group))}${detail("Patrimônio",e.asset_tag)}${detail("Número de série",e.serial_number)}${detail("Marca",e.brand)}${detail("Modelo",e.model)}${detail("Local",e.location_text)}${detail("Atualizado",dt(e.updated_at))}</div>${e.notes?`<div class="equipment-notes"><span>Observações</span><p>${esc(e.notes)}</p></div>`:""}<div class="modal-actions"><button class="button ghost" data-qr>QR Code</button>${e.status==="available"&&e.is_active?`<button class="button primary" data-checkout>Retirar</button>`:""}${e.status==="in_use"?`<button class="button primary" data-return>Registrar devolução</button>`:""}${admin && !["in_use","maintenance"].includes(e.status)?`<button class="button ghost" data-maintenance>Manutenção</button>`:""}${admin?`<button class="button ghost" data-edit>Editar</button><button class="button danger-solid" data-delete type="button">Apagar</button>`:""}</div></div>`, true);
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
   qs("[data-qr]",modal)?.addEventListener("click",()=>openQrModal(e.qr_token,e.label||e.code,`${schoolGroupLabel(e.school_group)} · ${e.brand} ${e.model}`));
   qs("[data-checkout]",modal)?.addEventListener("click",()=>{modal.remove();openCheckoutModal([e])});
   qs("[data-return]",modal)?.addEventListener("click",async()=>{const b=qs("[data-return]",modal);setBusy(b,true,"Registrando…");const {error}=await supabase.rpc("return_equipment",{p_equipment_id:e.id,p_client_action_id:uid()});setBusy(b,false);if(error)return notify(errText(error),"error");invalidateEquipaActivity();notify("Devolução registrada com data e horário.","success");modal.remove();navigate("withdrawals")});
@@ -1575,7 +1799,11 @@ function renderOpsRows(rows){
   const operator=active?e.recorded_by_name||e.responsible_name||"Não identificado":"—";
   const location=active?e.destination||"Não informado":e.location_text||"Não informado";
   const reason=active?e.checkout_purpose?withdrawalPurposeLabel(e.checkout_purpose):"Motivo não informado":st==="maintenance"?"Em manutenção":"—";
+<<<<<<< HEAD
   const when=active?(e.due_at?dt(e.due_at):"Prazo não informado"):(e.updated_at?`Atualizado ${dt(e.updated_at)}`:"Sem movimentação recente");
+=======
+  const when=active?(e.due_at?`Previsão: ${dt(e.due_at)}`:"Prazo não informado"):(e.updated_at?`Atualizado ${dt(e.updated_at)}`:"Sem movimentação recente");
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
   const opens=Boolean(e.withdrawal_id)&&active;
   const action=opens?`<button type="button" data-withdrawal-id="${esc(e.withdrawal_id)}" aria-label="Abrir retirada de ${esc(e.code)}">Detalhes ${uiIcon("arrow",15)}</button>`:`<button type="button" data-ops-equipment="${esc(e.id)}" aria-label="Abrir equipamento ${esc(e.code)}">${st==="available"?"Retirar":"Detalhes"} ${uiIcon("arrow",15)}</button>`;
   return `<tr class="ops-table-row" data-condition="${condition.toLowerCase()}"><td data-label="Equipamento"><strong>${esc(e.code)}</strong><small>${esc([e.brand,e.model].filter(Boolean).join(" ")||e.label||"Equipamento")}</small></td><td data-label="Situação"><span class="ops-badge ${st}">${esc(opsStatusLabel(st))}</span><span class="ops-health ${condition.toLowerCase()}">${esc(condition)}</span></td><td data-label="Registrado por">${esc(operator)}</td><td data-label="Em posse de">${esc(person)}${active&&e.custodian_role?`<small>${esc(withdrawalRoleLabel(e.custodian_role))}${e.custody_mode==="delegate"?" · declarado":""}</small>`:""}</td><td data-label="Turma / Local">${active&&e.class_name?`<strong>${esc(e.class_name)}</strong>`:""}<small>${esc(location)}</small></td><td data-label="Motivo">${esc(reason)}</td><td data-label="Previsão">${esc(when)}</td><td data-label="Ações">${action}</td></tr>`;
@@ -2165,12 +2393,16 @@ async function boot() {
     }
 
     const session = data?.session || null;
+<<<<<<< HEAD
     const urlEvent = supabase.auth.consumeUrlAuthEvent?.() || null;
     if (urlEvent?.type === "error") { renderAuth(null, urlEvent); return; }
     if (!session) return;
     // Link de "Esqueci a senha": pedir a nova senha antes de abrir o painel.
     if (urlEvent?.type === "recovery") { renderPasswordReset(session); return; }
     if (urlEvent?.type === "signup") notify("E-mail confirmado. Bem-vindo ao Equipa.", "success");
+=======
+    if (!session) return;
+>>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
 
     showBootLoader();
     await initSession(session);
