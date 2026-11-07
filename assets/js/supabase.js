@@ -1,0 +1,613 @@
+(function () {
+"use strict";
+/*
+ * Equipa Supabase browser client (local, dependency-free)
+ * Implements only the Supabase surfaces used by Equipa:
+ * Auth, PostgREST table queries, RPC and Edge Functions.
+ * No service/secret key is present here. The browser uses only the publishable key.
+ */
+
+const config = window.EQUIPA_CONFIG;
+
+if (!config?.supabaseUrl || !config?.supabasePublishableKey) {
+  throw new Error("Configuração do Supabase ausente.");
+}
+
+const API_URL = String(config.supabaseUrl).replace(/\/$/, "");
+const API_KEY = String(config.supabasePublishableKey);
+const PROJECT_REF = (() => {
+  try { return new URL(API_URL).hostname.split(".")[0] || "equipa"; }
+  catch { return "equipa"; }
+})();
+// A configuração é pública, mas precisa apontar para o mesmo projeto em todas as APIs.
+if (config.supabaseProjectRef && PROJECT_REF !== config.supabaseProjectRef) {
+  throw new Error("URL e identificador do projeto Supabase não correspondem.");
+}
+if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(API_URL) || !/^sb_publishable_[A-Za-z0-9_-]+$/.test(API_KEY)) {
+  throw new Error("URL ou chave pública do Supabase inválida.");
+}
+const STORAGE_KEY = `sb-${PROJECT_REF}-auth-token`;
+const listeners = new Set();
+let memorySession = null;
+let sessionPersistence = "local";
+let refreshTimer = null;
+const NETWORK_TIMEOUT_MS = 12000;
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = NETWORK_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const externalSignal = options.signal;
+  let externalAbort;
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort(externalSignal.reason);
+    else {
+      externalAbort = () => controller.abort(externalSignal.reason);
+      externalSignal.addEventListener("abort", externalAbort, { once: true });
+    }
+  }
+  const timer = setTimeout(() => controller.abort(new DOMException("Tempo limite de rede excedido.", "TimeoutError")), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+    if (externalSignal && externalAbort) externalSignal.removeEventListener("abort", externalAbort);
+  }
+}
+
+function safeJsonParse(value) {
+  if (!value) return null;
+  try { return JSON.parse(value); } catch { return null; }
+}
+
+function readStoredSession() {
+  if (memorySession) return memorySession;
+  // A sessão desta aba tem prioridade quando "Lembrar de mim" estiver desmarcado.
+  for (const mode of ["session", "local"]) {
+    try {
+      const storage = mode === "session" ? sessionStorage : localStorage;
+      const raw = storage.getItem(STORAGE_KEY);
+      const parsed = safeJsonParse(raw);
+      if (!parsed) continue;
+      const candidate = parsed.currentSession || parsed.session || parsed;
+      if (candidate?.access_token && candidate?.refresh_token) {
+        sessionPersistence = mode;
+        memorySession = normalizeSession(candidate);
+        return memorySession;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+function writeStoredSession(session) {
+  memorySession = session || null;
+  try {
+    if (session) {
+      const target = sessionPersistence === "session" ? sessionStorage : localStorage;
+      target.setItem(STORAGE_KEY, JSON.stringify(session));
+      (sessionPersistence === "session" ? localStorage : sessionStorage).removeItem(STORAGE_KEY);
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+      sessionStorage.removeItem(STORAGE_KEY);
+    }
+  } catch {}
+  scheduleRefresh(session);
+}
+
+function userFromAccessToken(token) {
+  try {
+    const part = String(token || "").split(".")[1];
+    if (!part) return null;
+    const base64 = part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(base64));
+    if (!payload?.sub) return null;
+    return { id: payload.sub, email: payload.email || null, role: payload.role || "authenticated" };
+  } catch { return null; }
+}
+
+function normalizeSession(raw) {
+  if (!raw?.access_token) return null;
+  const expiresIn = Number(raw.expires_in || 3600);
+  const expiresAt = Number(raw.expires_at || Math.floor(Date.now() / 1000) + expiresIn);
+  return {
+    access_token: raw.access_token,
+    refresh_token: raw.refresh_token || "",
+    token_type: raw.token_type || "bearer",
+    expires_in: expiresIn,
+    expires_at: expiresAt,
+    user: raw.user || userFromAccessToken(raw.access_token)
+  };
+}
+
+function emitAuth(event, session) {
+  for (const callback of [...listeners]) {
+    try { callback(event, session); } catch (error) { console.error("Equipa auth listener:", error); }
+  }
+}
+
+function scheduleRefresh(session) {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = null;
+  if (!session?.refresh_token || !session?.expires_at) return;
+  const delay = Math.max(15_000, (session.expires_at * 1000) - Date.now() - 60_000);
+  refreshTimer = setTimeout(() => {
+    refreshSession(session.refresh_token).catch(() => {});
+  }, Math.min(delay, 2_147_000_000));
+}
+
+function errorFromPayload(payload, fallback = "Falha na comunicação com o servidor.") {
+  if (payload instanceof Error) return payload;
+  const message = payload?.message || payload?.msg || payload?.error_description || payload?.error || payload?.hint || fallback;
+  const error = new Error(String(message));
+  if (payload?.code) error.code = payload.code;
+  if (payload?.details) error.details = payload.details;
+  if (payload?.hint) error.hint = payload.hint;
+  return error;
+}
+
+async function parseResponse(response) {
+  if (response.status === 204 || response.status === 205) return null;
+  const text = await response.text();
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+function authHeaders(session = readStoredSession()) {
+  const headers = { apikey: API_KEY };
+  if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+  return headers;
+}
+
+async function authFetch(path, { method = "POST", body, session, headers = {} } = {}) {
+  const response = await fetchWithTimeout(`${API_URL}/auth/v1${path}`, {
+    method,
+    headers: {
+      apikey: API_KEY,
+      "Content-Type": "application/json",
+      ...((session?.access_token) ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      ...headers
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    cache: "no-store"
+  });
+  const payload = await parseResponse(response);
+  if (!response.ok) throw errorFromPayload(payload, `Falha de autenticação (${response.status}).`);
+  return payload;
+}
+
+async function refreshSession(refreshToken) {
+  if (!refreshToken) return null;
+  try {
+    const payload = await authFetch("/token?grant_type=refresh_token", { body: { refresh_token: refreshToken } });
+    const session = normalizeSession(payload);
+    if (!session) throw new Error("Sessão renovada inválida.");
+    writeStoredSession(session);
+    emitAuth("TOKEN_REFRESHED", session);
+    return session;
+  } catch (error) {
+    // Uma queda de rede ou erro 5xx nao significa que a sessao foi revogada.
+    // Preservar o refresh token para uma nova tentativa, sem permitir uso de token vencido.
+    if (/invalid.*refresh|refresh.*invalid|refresh.*expired|session.*not.*found|invalid_grant/i.test(String(error?.message || "")) || error?.code === "refresh_token_not_found") {
+      writeStoredSession(null);
+      emitAuth("SIGNED_OUT", null);
+    }
+    throw error;
+  }
+}
+
+// Endereço para onde os links de e-mail do Supabase devem voltar.
+// Usa sempre o site publicado (config.siteUrl) para que confirmação de conta e
+// troca de senha nunca caiam em http://localhost:3000.
+function authRedirectUrl() {
+  const site = String(config.siteUrl || "").trim();
+  if (/^https:\/\//i.test(site)) return site;
+  return `${location.origin}${location.pathname.replace(/index\.html$/i, "")}`;
+}
+
+// Evento de autenticação trazido pelo link do e-mail (#type=recovery, #error=...).
+let pendingUrlAuthEvent = null;
+function captureUrlAuthEvent() {
+  try {
+    const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
+    const query = new URLSearchParams(location.search);
+    const error = hash.get("error") || query.get("error");
+    if (error) {
+      const code = hash.get("error_code") || query.get("error_code") || error;
+      const description = hash.get("error_description") || query.get("error_description") || "";
+      pendingUrlAuthEvent = { type: "error", code, description: description.replace(/\+/g, " ") };
+      const clean = new URLSearchParams(location.search);
+      ["error", "error_code", "error_description"].forEach(k => clean.delete(k));
+      const search = clean.toString();
+      history.replaceState(null, document.title, `${location.pathname}${search ? `?${search}` : ""}`);
+      return;
+    }
+    const type = hash.get("type");
+    if (type && hash.get("access_token")) pendingUrlAuthEvent = { type };
+  } catch {}
+}
+captureUrlAuthEvent();
+
+function sessionFromUrl() {
+  try {
+    const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
+    const accessToken = hash.get("access_token");
+    const refreshToken = hash.get("refresh_token");
+    if (!accessToken || !refreshToken) return null;
+    const expiresIn = Number(hash.get("expires_in") || 3600);
+    const session = normalizeSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      expires_in: expiresIn,
+      token_type: hash.get("token_type") || "bearer"
+    });
+    history.replaceState(null, document.title, `${location.pathname}${location.search}`);
+    return session;
+  } catch { return null; }
+}
+
+class QueryBuilder {
+  constructor(client, table) {
+    this.client = client;
+    this.table = table;
+    this.method = "GET";
+    this.columns = "*";
+    this.body = undefined;
+    this.filters = [];
+    this.orders = [];
+    this.limitValue = null;
+    this.offsetValue = null;
+    this.countMode = null;
+    this.headOnly = false;
+    this.singleMode = null;
+  }
+
+  select(columns = "*", options = {}) {
+    this.columns = columns || "*";
+    this.countMode = options?.count || this.countMode;
+    this.headOnly = Boolean(options?.head);
+    if (this.method === "GET" && this.headOnly) this.method = "HEAD";
+    return this;
+  }
+  insert(value) { this.method = "POST"; this.body = value; return this; }
+  update(value) { this.method = "PATCH"; this.body = value; return this; }
+  delete() { this.method = "DELETE"; return this; }
+  eq(column, value) { this.filters.push([column, `eq.${formatFilterValue(value)}`]); return this; }
+  ilike(column, value) { this.filters.push([column, `ilike.${formatFilterValue(value)}`]); return this; }
+  gt(column, value) { this.filters.push([column, `gt.${formatFilterValue(value)}`]); return this; }
+  gte(column, value) { this.filters.push([column, `gte.${formatFilterValue(value)}`]); return this; }
+  lt(column, value) { this.filters.push([column, `lt.${formatFilterValue(value)}`]); return this; }
+  lte(column, value) { this.filters.push([column, `lte.${formatFilterValue(value)}`]); return this; }
+  or(expression) { this.filters.push(["or", `(${String(expression)})`]); return this; }
+  in(column, values) {
+    const encoded = (values || []).map(v => `"${String(v).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`).join(",");
+    this.filters.push([column, `in.(${encoded})`]);
+    return this;
+  }
+  order(column, options = {}) { this.orders.push(`${column}.${options?.ascending === false ? "desc" : "asc"}`); return this; }
+  limit(value) { this.limitValue = Math.max(0, Number(value) || 0); return this; }
+  range(from, to) {
+    this.offsetValue = Math.max(0, Number(from) || 0);
+    this.limitValue = Math.max(0, (Number(to) || 0) - this.offsetValue + 1);
+    return this;
+  }
+  single() { this.singleMode = "single"; return this; }
+  maybeSingle() { this.singleMode = "maybe"; return this; }
+
+  then(resolve, reject) { return this.execute().then(resolve, reject); }
+  catch(reject) { return this.execute().catch(reject); }
+  finally(callback) { return this.execute().finally(callback); }
+
+  async execute() {
+    try {
+      const params = new URLSearchParams();
+      if (this.columns && (this.method === "GET" || this.method === "HEAD")) params.set("select", this.columns);
+      for (const [key, value] of this.filters) params.append(key, value);
+      if (this.orders.length) params.set("order", this.orders.join(","));
+      if (this.limitValue !== null) params.set("limit", String(this.limitValue));
+      if (this.offsetValue !== null) params.set("offset", String(this.offsetValue));
+
+      const headers = {
+        ...authHeaders(),
+        "Accept": "application/json"
+      };
+      const prefer = [];
+      if (this.countMode) prefer.push(`count=${this.countMode}`);
+      if (["POST", "PATCH", "DELETE"].includes(this.method)) prefer.push("return=representation");
+      if (prefer.length) headers.Prefer = prefer.join(",");
+      if (this.body !== undefined) headers["Content-Type"] = "application/json";
+
+      let url = `${API_URL}/rest/v1/${encodeURIComponent(this.table)}`;
+      const query = params.toString();
+      if (query) url += `?${query}`;
+
+      const response = await fetchWithTimeout(url, {
+        method: this.method,
+        headers,
+        body: this.body === undefined ? undefined : JSON.stringify(this.body),
+        cache: "no-store"
+      });
+      const payload = this.method === "HEAD" ? null : await parseResponse(response);
+      let count = null;
+      const contentRange = response.headers.get("content-range");
+      if (contentRange?.includes("/")) {
+        const tail = contentRange.split("/").pop();
+        if (tail && tail !== "*") count = Number(tail);
+      }
+
+      if (!response.ok) return { data: null, error: errorFromPayload(payload, `Erro de banco (${response.status}).`), count };
+
+      let data = payload;
+      if (this.singleMode) {
+        const rows = Array.isArray(payload) ? payload : (payload == null ? [] : [payload]);
+        if (this.singleMode === "single" && rows.length !== 1) {
+          const error = new Error("Resultado único não encontrado.");
+          error.code = "PGRST116";
+          return { data: null, error, count };
+        }
+        if (this.singleMode === "maybe" && rows.length > 1) {
+          const error = new Error("Mais de um resultado encontrado.");
+          error.code = "PGRST116";
+          return { data: null, error, count };
+        }
+        data = rows[0] || null;
+      }
+      return { data, error: null, count };
+    } catch (error) {
+      return { data: null, error: errorFromPayload(error), count: null };
+    }
+  }
+}
+
+function formatFilterValue(value) {
+  if (value === null) return "null";
+  if (typeof value === "boolean" || typeof value === "number") return String(value);
+  return String(value);
+}
+
+class EquipaSupabaseClient {
+  from(table) { return new QueryBuilder(this, table); }
+
+  // Verificação silenciosa da disponibilidade do servidor, sem sessão e sem
+  // consultar qualquer tabela protegida. Só o frontend decide exibir erro.
+  async checkAvailability() {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/auth/v1/health`, {
+        method: "GET",
+        headers: { apikey: API_KEY, Accept: "application/json" },
+        cache: "no-store"
+      }, 6500);
+      if (response.ok) return { ok: true };
+      return {
+        ok: false,
+        detail: response.status === 401 || response.status === 403
+          ? "Não foi possível validar a conexão com o servidor. Avise a administração."
+          : "O servidor não está respondendo corretamente. Tente novamente em instantes."
+      };
+    } catch {
+      return { ok: false, detail: "Não foi possível acessar o servidor. Verifique sua conexão e tente novamente." };
+    }
+  }
+
+  // A API de Auth e pública, mas o inventário NÃO é. Testar uma tabela antes
+  // do login produzia 42501 e fazia o site anunciar falsamente que o banco
+  // estava quebrado. Só testar a tabela com uma sessão válida.
+  async diagnoseConnection() {
+    const result = { ok: false, status: "offline", project: PROJECT_REF, code: "NETWORK", detail: "Servidor indisponível." };
+    try {
+      const health = await fetchWithTimeout(`${API_URL}/auth/v1/health`, {
+        method: "GET", headers: { apikey: API_KEY, Accept: "application/json" }, cache: "no-store"
+      }, 6500);
+      if (!health.ok) {
+        result.status = health.status === 401 || health.status === 403 ? "credentials" : "auth_error";
+        result.code = `AUTH_${health.status}`;
+        result.detail = health.status === 401 || health.status === 403
+          ? "Chave pública rejeitada pela API de autenticação."
+          : "A API de autenticação do projeto não respondeu corretamente.";
+        return result;
+      }
+
+      const { data: sessionData, error: sessionError } = await this.auth.getSession();
+      if (sessionError) {
+        return {
+          ok: false, status: "auth_error", project: PROJECT_REF,
+          code: sessionError.code || "SESSION_REFRESH_FAILED",
+          detail: "A API respondeu, mas não foi possível validar a sessão. Tente entrar novamente."
+        };
+      }
+      const session = sessionData?.session;
+      if (!session?.access_token) {
+        // Anon não deve ter SELECT na tabela protegida. Sem login, o sucesso
+        // do health-check confirma a conexão, não as permissões de usuário.
+        return {
+          ok: true, status: "login_required", project: PROJECT_REF,
+          code: "LOGIN_REQUIRED",
+          detail: "Supabase disponível. Entre com sua conta para acessar os equipamentos."
+        };
+      }
+      const response = await fetchWithTimeout(`${API_URL}/rest/v1/equipments?select=id&limit=0`, {
+        method: "GET", headers: { ...authHeaders(session), Accept: "application/json" }, cache: "no-store"
+      }, 6500);
+      if (response.ok) {
+        return { ok: true, status: "connected", project: PROJECT_REF, code: "OK", detail: "Autenticação e API do banco respondendo." };
+      }
+      const payload = await parseResponse(response);
+      const code = String(payload?.code || `REST_${response.status}`);
+      const missing = ["PGRST205", "42P01", "PGRST202"].includes(code);
+      const credentials = response.status === 401 && /invalid api key|invalid.*jwt|api key/i.test(String(payload?.message || ""));
+      return {
+        ok: false,
+        status: missing ? "schema" : credentials ? "credentials"
+          : response.status === 401 || response.status === 403 || code === "42501" ? "restricted" : "api_error",
+        project: PROJECT_REF,
+        code,
+        detail: missing ? "A tabela de equipamentos não foi encontrada. Verifique as migrations do banco."
+          : credentials ? "O servidor rejeitou a chave pública ou a sessão."
+          : response.status === 401 || response.status === 403 || code === "42501"
+            ? "A sessão foi reconhecida, mas não tem acesso ao inventário. Verifique se a conta está ativa e suas permissões."
+          : "O banco respondeu com erro. Verifique o painel Supabase."
+      };
+    } catch (error) {
+      result.detail = /abort|timeout|tempo limite/i.test(String(error?.name || "") + String(error?.message || ""))
+        ? "O servidor demorou demais para responder." : "Não foi possível alcançar o Supabase. Verifique rede, DNS e projeto.";
+      return result;
+    }
+  }
+
+  async rpc(name, params = {}) {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/rest/v1/rpc/${encodeURIComponent(name)}`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(params || {}),
+        cache: "no-store"
+      }, name === "equipa_register_equipment_batch" || name === "equipa_quick_register_sequential" ? 60000 : NETWORK_TIMEOUT_MS);
+      const payload = await parseResponse(response);
+      if (!response.ok) return { data: null, error: errorFromPayload(payload, `Erro de operação (${response.status}).`) };
+      return { data: payload, error: null };
+    } catch (error) {
+      return { data: null, error: errorFromPayload(error) };
+    }
+  }
+
+  auth = {
+    getSession: async () => {
+      try {
+        const urlSession = sessionFromUrl();
+        if (urlSession) writeStoredSession(urlSession);
+        let session = urlSession || readStoredSession();
+        if (session?.expires_at && session.expires_at * 1000 <= Date.now() + 30_000) {
+          if (session.refresh_token) session = await refreshSession(session.refresh_token);
+          else { writeStoredSession(null); session = null; }
+        }
+        return { data: { session: session || null }, error: null };
+      } catch (error) {
+        // Falha temporaria de rede nao autoriza descartar o refresh token salvo.
+        return { data: { session: null }, error: errorFromPayload(error) };
+      }
+    },
+
+    signInWithPassword: async ({ email, password, remember = true }) => {
+      try {
+        const payload = await authFetch("/token?grant_type=password", { body: { email, password } });
+        const session = normalizeSession(payload);
+        if (!session) throw new Error("Resposta de login inválida.");
+        sessionPersistence = remember ? "local" : "session";
+        writeStoredSession(session);
+        emitAuth("SIGNED_IN", session);
+        return { data: { user: session.user, session }, error: null };
+      } catch (error) {
+        return { data: { user: null, session: null }, error: errorFromPayload(error) };
+      }
+    },
+
+    signUp: async ({ email, password, options = {} }) => {
+      try {
+        // A confirmação por e-mail volta para o site publicado (config.siteUrl).
+        // Esse endereço precisa estar na lista de Redirect URLs do Supabase Auth.
+        const redirectTo = options?.emailRedirectTo || authRedirectUrl();
+        const payload = await authFetch(`/signup?redirect_to=${encodeURIComponent(redirectTo)}`, { body: { email, password, data: options?.data || {} } });
+        let session = null;
+        if (payload?.access_token) {
+          session = normalizeSession(payload);
+          writeStoredSession(session);
+          emitAuth("SIGNED_IN", session);
+        }
+        const user = payload?.user || (payload?.id ? payload : session?.user) || null;
+        return { data: { user, session }, error: null };
+      } catch (error) {
+        return { data: { user: null, session: null }, error: errorFromPayload(error) };
+      }
+    },
+
+    signOut: async () => {
+      const session = readStoredSession();
+      let error = null;
+      try {
+        if (session?.access_token) await authFetch("/logout", { session, body: {} });
+      } catch (e) { error = errorFromPayload(e); }
+      writeStoredSession(null);
+      emitAuth("SIGNED_OUT", null);
+      return { error };
+    },
+
+    resetPasswordForEmail: async (email, options = {}) => {
+      try {
+        const redirectTo = options?.redirectTo || authRedirectUrl();
+        await authFetch(`/recover?redirect_to=${encodeURIComponent(redirectTo)}`, { body: { email } });
+        return { data: {}, error: null };
+      } catch (error) {
+        return { data: null, error: errorFromPayload(error) };
+      }
+    },
+
+    resend: async ({ type = "signup", email }) => {
+      try {
+        await authFetch(`/resend?redirect_to=${encodeURIComponent(authRedirectUrl())}`, { body: { type, email } });
+        return { data: {}, error: null };
+      } catch (error) {
+        return { data: null, error: errorFromPayload(error) };
+      }
+    },
+
+    // Usado na troca de senha após abrir o link de recuperação.
+    updateUser: async (attributes = {}) => {
+      try {
+        const session = readStoredSession();
+        if (!session?.access_token) throw new Error("O link de recuperação expirou. Solicite um novo e-mail.");
+        const payload = await authFetch("/user", { method: "PUT", session, body: attributes });
+        const updated = { ...session, user: payload || session.user };
+        writeStoredSession(updated);
+        emitAuth("USER_UPDATED", updated);
+        return { data: { user: payload }, error: null };
+      } catch (error) {
+        return { data: { user: null }, error: errorFromPayload(error) };
+      }
+    },
+
+    // Retorna (uma única vez) o evento trazido pelo link do e-mail:
+    // { type: "recovery" | "signup" | "invite" | "magiclink" | "email_change" | "error", ... }
+    consumeUrlAuthEvent: () => {
+      const event = pendingUrlAuthEvent;
+      pendingUrlAuthEvent = null;
+      return event;
+    },
+
+    redirectUrl: () => authRedirectUrl(),
+
+    onAuthStateChange: (callback) => {
+      listeners.add(callback);
+      return { data: { subscription: { unsubscribe: () => listeners.delete(callback) } } };
+    }
+  };
+
+  functions = {
+    invoke: async (name, options = {}) => {
+      try {
+        const session = readStoredSession();
+        if (!session?.access_token) return { data: null, error: new Error("Sessão necessária.") };
+        const response = await fetchWithTimeout(`${API_URL}/functions/v1/${encodeURIComponent(name)}`, {
+          method: "POST",
+          headers: {
+            ...authHeaders(session),
+            "Content-Type": "application/json",
+            Accept: "application/json"
+          },
+          body: JSON.stringify(options?.body ?? {}),
+          cache: "no-store"
+        });
+        const payload = await parseResponse(response);
+        if (!response.ok) return { data: payload, error: errorFromPayload(payload, `Erro da função (${response.status}).`) };
+        return { data: payload, error: null };
+      } catch (error) {
+        return { data: null, error: errorFromPayload(error) };
+      }
+    }
+  };
+}
+
+const supabase = new EquipaSupabaseClient();
+window.EquipaSupabase = Object.freeze({ supabase, config });
+
+// Keep existing Supabase-js sessions alive when possible.
+scheduleRefresh(readStoredSession());
+
+})();
