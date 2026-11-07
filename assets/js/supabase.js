@@ -194,7 +194,6 @@ async function refreshSession(refreshToken) {
   }
 }
 
-<<<<<<< HEAD
 // Endereço para onde os links de e-mail do Supabase devem voltar.
 // Usa sempre o site publicado (config.siteUrl) para que confirmação de conta e
 // troca de senha nunca caiam em http://localhost:3000.
@@ -227,8 +226,6 @@ function captureUrlAuthEvent() {
 }
 captureUrlAuthEvent();
 
-=======
->>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
 function sessionFromUrl() {
   try {
     const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
@@ -504,15 +501,9 @@ class EquipaSupabaseClient {
 
     signUp: async ({ email, password, options = {} }) => {
       try {
-<<<<<<< HEAD
         // A confirmação por e-mail volta para o site publicado (config.siteUrl).
         // Esse endereço precisa estar na lista de Redirect URLs do Supabase Auth.
         const redirectTo = options?.emailRedirectTo || authRedirectUrl();
-=======
-        // A confirmação por e-mail precisa voltar para a mesma página do GitHub Pages.
-        // Configure a URL publicada na lista de Redirect URLs do Supabase Auth.
-        const redirectTo = options?.emailRedirectTo || `${location.origin}${location.pathname}`;
->>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
         const payload = await authFetch(`/signup?redirect_to=${encodeURIComponent(redirectTo)}`, { body: { email, password, data: options?.data || {} } });
         let session = null;
         if (payload?.access_token) {
@@ -540,20 +531,14 @@ class EquipaSupabaseClient {
 
     resetPasswordForEmail: async (email, options = {}) => {
       try {
-<<<<<<< HEAD
         const redirectTo = options?.redirectTo || authRedirectUrl();
         await authFetch(`/recover?redirect_to=${encodeURIComponent(redirectTo)}`, { body: { email } });
-=======
-        const query = options?.redirectTo ? `?redirect_to=${encodeURIComponent(options.redirectTo)}` : "";
-        await authFetch(`/recover${query}`, { body: { email } });
->>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
         return { data: {}, error: null };
       } catch (error) {
         return { data: null, error: errorFromPayload(error) };
       }
     },
 
-<<<<<<< HEAD
     resend: async ({ type = "signup", email }) => {
       try {
         await authFetch(`/resend?redirect_to=${encodeURIComponent(authRedirectUrl())}`, { body: { type, email } });
@@ -588,8 +573,6 @@ class EquipaSupabaseClient {
 
     redirectUrl: () => authRedirectUrl(),
 
-=======
->>>>>>> 66d078bd83b08baa44c83760613aa9b39c7a8735
     onAuthStateChange: (callback) => {
       listeners.add(callback);
       return { data: { subscription: { unsubscribe: () => listeners.delete(callback) } } };
