@@ -1,6 +1,6 @@
 window.EQUIPA_CONFIG = Object.freeze({
   appName: "Equipa",
-  version: "0.7.0 Alpha",
+  version: "0.8.0 Alpha",
   // Endereço público do site. Todos os e-mails do Supabase (confirmação de
   // conta e troca de senha) voltam para cá, nunca para localhost.
   // Este endereço também precisa estar em Supabase → Authentication →
@@ -13,7 +13,7 @@ window.EQUIPA_CONFIG = Object.freeze({
   supabaseProjectRef: "oxcfbsrukzfnzkivatsn",
   supabaseUrl: "https://oxcfbsrukzfnzkivatsn.supabase.co",
   supabasePublishableKey: "sb_publishable_gu7AVR7fbvPE_GQ4XIW2IQ_iTFAzyne",
-  pageSize: 24,
+  pageSize: 50,
   historyLimit: 150,
   importMaxBytes: 5 * 1024 * 1024
 });

@@ -601,7 +601,7 @@ function shell(content) {
   const dark = document.documentElement.dataset.theme === "dark";
   const initial = esc(firstName().slice(0,1).toUpperCase());
   const mobileMoreItems = `${nav("carts","Carrinhos")}${nav("history","Histórico")}${admin ? nav("maintenance","Manutenção") + nav("reports","Relatórios") + nav("audit","Auditoria") + nav("admin","Administração") : ""}`;
-  app.innerHTML = `<div class="app-shell">
+  app.innerHTML = `<div class="app-shell page-${esc(state.view)}">
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-brand" title="Equipa">${brandMark(28)}<div class="brand-copy"><strong>Equipa</strong><span>E.E. Amador e Catharina</span></div></div>
       <nav class="nav" aria-label="Navegação principal">
@@ -1233,6 +1233,51 @@ function setupSmartInputs(root=document){
  });
 }
 let equipmentSearchGeneration=0;
+// Seleção no inventário: vale entre páginas e buscas, e abre uma barra
+// com "Retirar", "Etiquetas" e "Limpar".
+function bindInventorySelection(host,rows){
+  const sel=state.invSelected||(state.invSelected=new Map());
+  const boxes=qsa('.equip-row-select',host);
+  const mark=(cb)=>cb.closest('.asset-row')?.classList.toggle('picked',cb.checked);
+  boxes.forEach(cb=>{
+    cb.checked=sel.has(cb.value);mark(cb);
+    cb.addEventListener('click',e=>e.stopPropagation());
+    cb.addEventListener('change',()=>{const row=rows.find(r=>String(r.id)===cb.value);if(cb.checked&&row)sel.set(cb.value,row);else sel.delete(cb.value);mark(cb);syncAll();paintSelectionBar();});
+  });
+  // A célula inteira da caixinha é clicável (alvo maior).
+  qsa('.asset-check',host).forEach(cell=>cell.addEventListener('click',e=>{if(e.target.matches('input'))return;e.stopPropagation();const cb=cell.querySelector('input');if(!cb)return;cb.checked=!cb.checked;cb.dispatchEvent(new Event('change'));}));
+  const all=qs('#equip-select-all',host);
+  const syncAll=()=>{if(all)all.checked=boxes.length>0&&boxes.every(b=>b.checked);};
+  all?.addEventListener('change',()=>{boxes.forEach(cb=>{if(cb.checked!==all.checked){cb.checked=all.checked;cb.dispatchEvent(new Event('change'));}});});
+  syncAll();paintSelectionBar();
+}
+function clearInventorySelection(){
+  state.invSelected?.clear();
+  qsa('.equip-row-select').forEach(cb=>{cb.checked=false;cb.closest('.asset-row')?.classList.remove('picked');});
+  const all=qs('#equip-select-all');if(all)all.checked=false;
+  paintSelectionBar();
+}
+function paintSelectionBar(){
+  const sel=state.invSelected||new Map();let bar=qs('#inv-selbar');
+  if(!sel.size||state.view!=='equipment'){bar?.remove();return;}
+  if(!bar){
+    const admin=state.profile?.role==='admin';
+    qs('.content')?.insertAdjacentHTML('beforeend',`<div class="selbar" id="inv-selbar" role="region" aria-label="Equipamentos marcados"><span class="selbar-count"><strong id="inv-sel-n"></strong><small id="inv-sel-hint"></small></span><div class="selbar-actions"><button class="button ghost" id="inv-sel-clear" type="button">Limpar</button>${admin?`<button class="button" id="inv-sel-labels" type="button">${uiIcon("tag",16)} Etiquetas</button>`:''}<button class="button primary" id="inv-sel-out" type="button">${uiIcon("checkout",16)} <span>Retirar</span></button></div></div>`);
+    bar=qs('#inv-selbar');if(!bar)return;
+    qs('#inv-sel-clear',bar).addEventListener('click',clearInventorySelection);
+    qs('#inv-sel-labels',bar)?.addEventListener('click',()=>{const chosen=[...(state.invSelected||new Map()).values()].filter(r=>r.qr_token);if(chosen.length)window.EquipaInventory?.downloadLabels(chosen,'Equipa-etiquetas-selecionadas');});
+    qs('#inv-sel-out',bar).addEventListener('click',()=>{
+      const chosen=[...(state.invSelected||new Map()).values()].filter(r=>r.status==='available'&&r.is_active!==false);
+      if(!chosen.length)return notify('Nenhum dos marcados está disponível para retirada.','warning');
+      if(chosen.length>60)return notify('Uma retirada aceita até 60 equipamentos. Desmarque alguns.','warning');
+      clearInventorySelection();openCheckoutModal(chosen);
+    });
+  }
+  const list=[...sel.values()], avail=list.filter(r=>r.status==='available'&&r.is_active!==false).length;
+  qs('#inv-sel-n').textContent=`${list.length} marcado${list.length>1?'s':''}`;
+  qs('#inv-sel-hint').textContent=avail===list.length?'':`${list.length-avail} não disponíve${list.length-avail===1?'l':'is'} para retirada`;
+  const out=qs('#inv-sel-out');out.disabled=!avail;qs('span',out).textContent=avail?`Retirar ${avail}`:'Retirar';
+}
 async function refreshEquipmentSearch(){
  const host=qs('#equipment-results'),counter=qs('#equipment-count');if(!host||state.view!=='equipment')return;
  const generation=++equipmentSearchGeneration;
@@ -1255,13 +1300,7 @@ async function refreshEquipmentSearch(){
  bindEquipmentRowClicks(host);
  qs('#prev',host)?.addEventListener('click',()=>{state.equipmentPage--;refreshEquipmentSearch()});
  qs('#next',host)?.addEventListener('click',()=>{state.equipmentPage++;refreshEquipmentSearch()});
- qsa('.equip-row-select',host).forEach(cb=>cb.addEventListener('click',e=>e.stopPropagation()));
- const selectAll=qs('#equip-select-all',host);
- selectAll?.addEventListener('change',e=>qsa('.equip-row-select',host).forEach(cb=>cb.checked=e.target.checked));
- const update=()=>{const selected=qsa('.equip-row-select:checked',host),btn=qs('#equipment-label-selected');if(btn){btn.hidden=!selected.length;btn.textContent=`PDF dos selecionados (${selected.length})`}};
- qsa('.equip-row-select',host).forEach(cb=>cb.addEventListener('change',update));selectAll?.addEventListener('change',update);
- const oldLabels=qs('#equipment-label-selected');oldLabels?.replaceWith(oldLabels.cloneNode(true));
- qs('#equipment-label-selected')?.addEventListener('click',()=>{const ids=new Set(qsa('.equip-row-select:checked',host).map(cb=>cb.value));const chosen=rows.filter(row=>ids.has(row.id));if(chosen.length)window.EquipaInventory?.downloadLabels(chosen,'Equipa-etiquetas-selecionadas')},{once:true});
+ bindInventorySelection(host,rows);
 }
 async function renderEquipment() {
   const generation=++equipmentSearchGeneration;
@@ -1323,11 +1362,7 @@ async function renderEquipment() {
   qs("#equipment-sort")?.addEventListener("change",e=>{state.equipmentSort=e.target.value;state.equipmentPage=0;renderEquipment()});
   qs("#equip-grid-view")?.addEventListener("click",()=>{qs(".ref-inventory-table-wrap")?.classList.add("ref-compact-grid");qs("#equip-grid-view")?.classList.add("active");qs("#equip-list-view")?.classList.remove("active")});
   qs("#equip-list-view")?.addEventListener("click",()=>{qs(".ref-inventory-table-wrap")?.classList.remove("ref-compact-grid");qs("#equip-list-view")?.classList.add("active");qs("#equip-grid-view")?.classList.remove("active")});
-  qs("#equip-select-all")?.addEventListener("change",e=>qsa(".equip-row-select",host).forEach(cb=>cb.checked=e.target.checked));
-  const updateSelectedLabels=()=>{const selected=qsa(".equip-row-select:checked",host);const btn=qs("#equipment-label-selected");if(btn){btn.hidden=!selected.length;btn.textContent=`PDF dos selecionados (${selected.length})`}};
-  qsa(".equip-row-select",host).forEach(cb=>{cb.addEventListener("click",e=>e.stopPropagation());cb.addEventListener("change",updateSelectedLabels)});
-  qs("#equip-select-all")?.addEventListener("change",updateSelectedLabels);
-  qs("#equipment-label-selected")?.addEventListener("click",()=>{const ids=new Set(qsa(".equip-row-select:checked",host).map(cb=>cb.value));const chosen=rows.filter(row=>ids.has(row.id));if(chosen.length)window.EquipaInventory?.downloadLabels(chosen,"Equipa-etiquetas-selecionadas")});
+  bindInventorySelection(host,rows);
   qsa("[data-status-chip]").forEach(chip=>chip.addEventListener("click",()=>{state.equipmentFilters.status=chip.dataset.statusChip;state.equipmentPage=0;renderEquipment()}));
   if(admin&&!qs("#equipment-fab")){qs(".content")?.insertAdjacentHTML("beforeend",`<button class="fab" id="equipment-fab" type="button" aria-label="Cadastrar equipamento">${uiIcon("add",24)}</button>`);qs("#equipment-fab")?.addEventListener("click",()=>window.EquipaInventory.openHub("individual"));}
   qs("#new-equipment")?.addEventListener("click",()=>window.EquipaInventory.openHub("individual"));
@@ -1528,15 +1563,94 @@ async function renderWithdrawals(){
   setupSmartInputs(app);
   await loadWithdrawals();
 }
-async function openCheckoutEquipmentPicker(){
-  const m=makeModal(`<div class="panel-head"><div><span class="eyebrow">Nova retirada</span><h2>Selecione um equipamento</h2><p>Escolha um computador disponível. Para vários equipamentos, utilize a seleção no inventário.</p></div><button class="icon-button" data-close aria-label="Fechar">×</button></div><div class="modal-body"><label>Buscar por número ou modelo<input type="search" id="withdrawal-pick-search" placeholder="Ex.: NOTE-001" autocomplete="off"></label><div class="withdrawal-pick-list" id="withdrawal-pick-list"><div class="loading">Carregando equipamentos…</div></div><div class="modal-actions"><button class="button ghost" id="withdrawal-go-inventory" type="button">Selecionar vários no inventário</button></div></div>`,true);
-  qs("#withdrawal-go-inventory",m)?.addEventListener("click",()=>{m.remove();navigate("equipment");});
-  const {data,error}=await supabase.from("equipments").select("id,code,label,brand,model,school_group,location_text").eq("is_active",true).eq("status","available").order("code").limit(100);
-  const host=qs("#withdrawal-pick-list",m);if(!host)return;
-  if(error){host.innerHTML=`<div class="empty"><strong>Não foi possível buscar os equipamentos.</strong><span>${esc(errText(error))}</span></div>`;return;}
-  const rows=data||[];
-  const render=()=>{const q=(qs("#withdrawal-pick-search",m)?.value||"").toLocaleLowerCase("pt-BR").trim();const filtered=rows.filter(x=>[x.code,x.label,x.model,x.brand,x.location_text].join(" ").toLocaleLowerCase("pt-BR").includes(q));host.innerHTML=filtered.length?filtered.map(x=>`<button type="button" class="withdrawal-pick-item" data-pick="${esc(x.id)}"><span>${uiIcon("equipment",21)}</span><span><strong>${esc(x.label||x.code)}</strong><small>${esc(x.code)} · ${esc(x.brand||"")} ${esc(x.model||"")}${x.location_text?` · ${esc(x.location_text)}`:""}</small></span>${uiIcon("arrow",17)}</button>`).join(""):`<div class="empty"><strong>Nenhum equipamento disponível encontrado.</strong><span>Confira o inventário ou tente outra busca.</span></div>`;qsa("[data-pick]",host).forEach(b=>b.addEventListener("click",()=>{const selected=rows.find(x=>x.id===b.dataset.pick);m.remove();if(selected)openCheckoutModal([selected]);}));};
-  qs("#withdrawal-pick-search",m)?.addEventListener("input",render);render();
+// Seletor de equipamentos para retirada: escolha vários de uma vez.
+// Toque marca/desmarca; "Marcar todos" pega os visíveis; Shift+clique marca uma faixa.
+async function openCheckoutEquipmentPicker(preselected=[]){
+  const MAX=60;
+  // Quando usado direto como handler de clique, chega um Event: ignora.
+  const selected=new Map((Array.isArray(preselected)?preselected:[]).map(x=>[String(x.id),x]));
+  const m=makeModal(`<div class="picker">
+    <div class="panel-head"><div><span class="eyebrow">Nova retirada</span><h2>Escolha os equipamentos</h2><p>Toque para marcar. Você pode marcar vários (até ${MAX}).</p></div></div>
+    <div class="picker-tools"><label class="ops-search">${uiIcon("search",18)}<input type="search" id="pk-search" placeholder="Código, modelo ou local" autocomplete="off" aria-label="Buscar equipamento"></label><select id="pk-location" aria-label="Filtrar por local"><option value="">Todos os locais</option></select></div>
+    <div class="chip-row" id="pk-groups" role="group" aria-label="Tipo de equipamento"></div>
+    <div class="picker-bulk"><span id="pk-visible">Carregando…</span><div class="picker-bulk-actions"><span class="pk-qty"><input type="number" id="pk-qty" min="1" max="${MAX}" inputmode="numeric" placeholder="Qtd." aria-label="Quantos marcar"><button class="button small" id="pk-some" type="button">Marcar</button></span><button class="button small" id="pk-all" type="button">Marcar todos</button><button class="button small ghost" id="pk-none" type="button" hidden>Desmarcar</button></div></div>
+    <div class="picker-list" id="pk-list" role="listbox" aria-multiselectable="true" aria-label="Equipamentos disponíveis"><div class="loading">Carregando equipamentos…</div></div>
+    <div class="modal-actions picker-foot"><span class="picker-count" id="pk-count" aria-live="polite">Nenhum marcado</span><button class="button primary" id="pk-continue" type="button" disabled>Continuar</button></div>
+  </div>`,true);
+  m.classList.add("picker-modal");
+  const list=qs("#pk-list",m), search=qs("#pk-search",m), locSel=qs("#pk-location",m);
+  if(matchMedia("(min-width:821px)").matches)setTimeout(()=>search?.focus(),80);
+
+  let rows=[];
+  try{
+    for(let from=0;from<2000;from+=500){
+      const {data,error}=await supabase.from("equipments").select("id,code,label,brand,model,school_group,location_text,asset_tag").eq("is_active",true).eq("status","available").order("code").range(from,from+499);
+      if(error)throw error;
+      rows.push(...(data||[]));
+      if((data||[]).length<500)break;
+    }
+  }catch(error){ if(list.isConnected)list.innerHTML=`<div class="empty"><strong>Não foi possível buscar os equipamentos.</strong><span>${esc(errText(error))}</span></div>`; return; }
+  if(!m.isConnected)return;
+  if(!rows.length){ list.innerHTML=`<div class="empty">${uiIcon("inbox",26)}<strong>Nenhum equipamento disponível agora.</strong><span>Todos estão em uso ou em manutenção.</span></div>`; qs("#pk-visible",m).textContent="0 disponíveis"; return; }
+
+  // Filtros montados a partir do que existe de fato.
+  const groupCounts=rows.reduce((a,x)=>{const g=x.school_group||"outro";a[g]=(a[g]||0)+1;return a;},{});
+  let group="";
+  const paintGroups=()=>{qs("#pk-groups",m).innerHTML=[["","Todos",rows.length],...Object.entries(groupCounts).sort((a,b)=>b[1]-a[1]).map(([g,n])=>[g,schoolGroupLabel(g),n])].map(([g,l,n])=>`<button type="button" class="chip ${group===g?"selected":""}" data-pk-group="${esc(g)}">${esc(l)}<span class="chip-count">${n}</span></button>`).join("");};
+  paintGroups();
+  [...new Set(rows.map(x=>x.location_text).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt-BR",{numeric:true})).forEach(l=>locSel.insertAdjacentHTML("beforeend",`<option>${esc(l)}</option>`));
+  if(locSel.options.length<=2)locSel.hidden=true;
+
+  let visible=[], lastIdx=-1;
+  const rowHtml=(x,i)=>{const on=selected.has(String(x.id));return `<button type="button" class="pick-row ${on?"on":""}" role="option" aria-selected="${on}" data-idx="${i}"><span class="pick-box" aria-hidden="true">${uiIcon("check",15)}</span><span class="pick-main"><strong class="mono">${esc(x.code)}</strong><small>${esc([x.model,x.location_text].filter(Boolean).join(" · ")||schoolGroupLabel(x.school_group))}</small></span></button>`;};
+  const updateFoot=()=>{
+    const n=selected.size;
+    qs("#pk-count",m).textContent=n?`${n} marcado${n>1?"s":""}`:"Nenhum marcado";
+    const b=qs("#pk-continue",m);b.disabled=!n;b.textContent=n?`Continuar com ${n}`:"Continuar";
+    qs("#pk-none",m).hidden=!n;
+  };
+  const render=()=>{
+    const q=normalizeSearchText(search.value), loc=locSel.value;
+    visible=rows.filter(x=>(!group||(x.school_group||"outro")===group)&&(!loc||x.location_text===loc)&&(!q||normalizeSearchText([x.code,x.label,x.brand,x.model,x.location_text,x.asset_tag].join(" ")).includes(q)));
+    list.innerHTML=visible.length?visible.map(rowHtml).join(""):`<div class="empty"><strong>Nada encontrado.</strong><span>Tente outra busca ou outro filtro.</span></div>`;
+    qs("#pk-visible",m).textContent=`${visible.length} disponíve${visible.length===1?"l":"is"}`;
+    lastIdx=-1;updateFoot();
+  };
+  const setRow=(i,on)=>{
+    const x=visible[i];if(!x)return false;const id=String(x.id);
+    if(on&&!selected.has(id)&&selected.size>=MAX)return false;
+    on?selected.set(id,x):selected.delete(id);
+    const el=list.querySelector(`[data-idx="${i}"]`);if(el){el.classList.toggle("on",on);el.setAttribute("aria-selected",String(on));}
+    return true;
+  };
+  list.addEventListener("click",e=>{
+    const b=e.target.closest(".pick-row");if(!b)return;
+    const i=Number(b.dataset.idx), on=!selected.has(String(visible[i]?.id));
+    let capped=false;
+    if(e.shiftKey&&lastIdx>=0){const [a,z]=[Math.min(lastIdx,i),Math.max(lastIdx,i)];for(let k=a;k<=z;k++)if(!setRow(k,on))capped=true;}
+    else if(!setRow(i,on))capped=true;
+    if(capped)notify(`Uma retirada aceita até ${MAX} equipamentos.`,"warning");
+    lastIdx=i;updateFoot();
+  });
+  qs("#pk-groups",m).addEventListener("click",e=>{const c=e.target.closest("[data-pk-group]");if(!c)return;group=c.dataset.pkGroup;paintGroups();render();});
+  locSel.addEventListener("change",render);
+  let t;search.addEventListener("input",()=>{clearTimeout(t);t=setTimeout(render,90);});
+  search.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();if(visible.length===1){setRow(0,!selected.has(String(visible[0].id)));updateFoot();search.select();}}});
+  qs("#pk-all",m).addEventListener("click",()=>{let capped=false;visible.forEach((_,i)=>{if(!setRow(i,true))capped=true;});if(capped)notify(`Marcados os primeiros ${MAX}: é o limite por retirada.`,"warning");updateFoot();});
+  // "Marcar N": marca os N primeiros da lista visível (ex.: 30 Chromebooks do Laboratório 1).
+  const markSome=()=>{
+    const qty=qs("#pk-qty",m), want=Number.parseInt(qty.value||"0",10)||0;
+    if(want<1){qty.focus();return notify("Digite quantos equipamentos marcar.","warning");}
+    const n=Math.min(want,MAX-selected.size);
+    let added=0;for(let i=0;i<visible.length&&added<n;i++){if(!selected.has(String(visible[i].id))&&setRow(i,true))added++;}
+    if(added<want)notify(added?`Marcados ${added}: ${selected.size>=MAX?`limite de ${MAX} por retirada`:"não há mais disponíveis nesse filtro"}.`:"Não há mais equipamentos para marcar nesse filtro.","warning");
+    qty.value="";updateFoot();
+  };
+  qs("#pk-some",m).addEventListener("click",markSome);
+  qs("#pk-qty",m).addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();markSome();}});
+  qs("#pk-none",m).addEventListener("click",()=>{selected.clear();render();});
+  qs("#pk-continue",m).addEventListener("click",()=>{const chosen=[...selected.values()];if(!chosen.length)return;m.remove();openCheckoutModal(chosen);});
+  render();
 }
 const opsStatusPriority={overdue:0,maintenance:1,unavailable:2,in_use:3,available:4};
 function operationalState(e){
@@ -1650,24 +1764,24 @@ async function openWithdrawalDetail(withdrawalId) {
 }
 async function renderHistory() {
   state.view="history";
-  shell(`<section class="panel workspace-panel"><h1 class="visually-hidden">Histórico</h1><div class="toolbar workspace-toolbar"><div class="toolbar-cluster"><input id="history-smart" class="search" type="search" placeholder="Buscar equipamento, pessoa, turma ou destino"><button class="filter-button ${state.historyFiltersOpen ? 'active' : ''}" id="history-filter-toggle" type="button" aria-expanded="${state.historyFiltersOpen ? 'true' : 'false'}"><span>Filtros</span></button></div></div><div class="filter-drawer ${state.historyFiltersOpen ? 'open' : ''}" id="history-filter-panel"><div class="filter-grid"><label>Equipamento ou patrimônio<input id="h-equipment" placeholder="Ex.: CB-042"></label><label>Pessoa<input id="h-person" placeholder="Aluno ou responsável"></label><label>Aluno<input id="h-student" placeholder="Nome do aluno"></label><label>Turma<input id="h-class" placeholder="Ex.: 3º A"></label><label>Status<select id="h-status"><option value="">Todos os estados</option><option value="open">Em aberto</option><option value="returned">Devolvido</option><option value="cancelled">Cancelado</option></select></label></div><div class="filter-actions"><span class="muted">Ao informar uma pessoa, a consulta amplia o limite para localizar o histórico dela.</span><div><button class="button small ghost" id="history-filter-clear" type="button">Limpar</button><button class="button primary small" id="history-filter" type="button">Aplicar filtros</button></div></div></div><div id="history"><div class="loading">Carregando histórico…</div></div></section>`);
-  wireFilterToggle("history-filter-toggle", "history-filter-panel");
-  qs("#history-filter-toggle")?.addEventListener("click", ()=>{ state.historyFiltersOpen = qs("#history-filter-panel")?.classList.contains("open"); });
-  qs("#history-filter")?.addEventListener("click", ()=>loadHistory());
-  qs("#history-filter-clear")?.addEventListener("click", ()=>{ state.historySearch=""; ["#h-equipment", "#h-person", "#h-student", "#h-class", "#h-status", "#history-smart"].forEach(sel => { const el = qs(sel); if (el) el.value = ""; }); const global=qs("#global-search");if(global&&mobilePrincipalSearchActive())global.value=""; loadHistory(); });
-  let timer; qs("#history-smart")?.addEventListener("input", e=>{ clearTimeout(timer); state.historySearch=e.target.value;timer=setTimeout(()=>loadHistory(e.target.value),420); });
+  const chip=(v,l)=>`<button type="button" class="chip ${(state.historyStatus||"")===v?"selected":""}" data-h-status="${v}">${l}</button>`;
+  shell(`<section class="workspace-panel history-page"><h1 class="visually-hidden">Histórico</h1>
+    <div class="toolbar workspace-toolbar"><div class="toolbar-cluster"><input id="history-smart" class="search" type="search" value="${esc(state.historySearch)}" placeholder="Buscar equipamento, pessoa ou turma" aria-label="Buscar no histórico"></div></div>
+    <div class="chip-row" role="group" aria-label="Situação">${chip("","Todos")}${chip("open","Em aberto")}${chip("returned","Devolvidos")}</div>
+    <div id="history"><div class="loading">Carregando histórico…</div></div></section>`);
+  qsa("[data-h-status]").forEach(b=>b.addEventListener("click",()=>{state.historyStatus=b.dataset.hStatus;qsa("[data-h-status]").forEach(x=>x.classList.toggle("selected",x===b));loadHistory();}));
+  let timer; qs("#history-smart")?.addEventListener("input", e=>{ clearTimeout(timer); state.historySearch=e.target.value; timer=setTimeout(()=>loadHistory(e.target.value),380); });
   await loadHistory(state.historySearch);
 }
 async function loadHistory(smartQuery=""){
-  const person=qs("#h-person")?.value.trim()||"";
-  const p={p_from:null,p_to:null,p_equipment:qs("#h-equipment")?.value.trim()||null,p_label:null,p_student:qs("#h-student")?.value.trim()||null,p_professor:null,p_class_name:qs("#h-class")?.value.trim()||null,p_destination:null,p_status:qs("#h-status")?.value||null,p_equipment_id:null,p_limit:person?5000:config.historyLimit};
+  const query=smartQuery || state.historySearch || "";
+  // Com busca, olha mais longe no passado para achar a pessoa/equipamento.
+  const p={p_from:null,p_to:null,p_equipment:null,p_label:null,p_student:null,p_professor:null,p_class_name:null,p_destination:null,p_status:state.historyStatus||null,p_equipment_id:null,p_limit:query.trim()?2000:config.historyLimit};
   const {data,error}=await supabase.rpc("history_events",p);const h=qs("#history");if(!h)return;
   if(error){h.innerHTML=`<div class="empty"><strong>Erro ao carregar histórico.</strong><span>${esc(errText(error))}</span></div>`;return}
-  let rows=data||[];
-  if(person)rows=smartFilter(rows,person,x=>[x.student_name,x.responsible_name]);
-  rows=smartFilter(rows, smartQuery || state.historySearch || qs("#history-smart")?.value || "", x=>[x.label,x.code,x.brand,x.model,x.class_name,x.destination,x.student_name,x.responsible_name,x.status,statusLabel(x.status)]);
-  if(!rows.length){h.innerHTML=`<div class="empty"><strong>Nenhum evento.</strong><span>Altere os filtros ou aguarde novas movimentações.</span></div>`;return}
-  h.innerHTML=`<div class="data-list">${rows.map(x=>`<div class="data-row"><div class="data-main"><strong>${esc(x.label||x.code)} · ${esc(x.brand)} ${esc(x.model)}</strong><span>${esc(x.class_name||"Sem turma")} · ${esc(x.destination||"Sem destino")}${x.student_name?` · Aluno: ${esc(x.student_name)}`:""}${x.responsible_name?` · Responsável: ${esc(x.responsible_name)}`:""}</span></div><span class="status status-${esc(x.status)}">${esc(statusLabel(x.status))}</span><span class="data-date">${x.returned_at?`Devolvido ${esc(dt(x.returned_at))}`:esc(dt(x.withdrawn_at))}</span></div>`).join("")}</div>`;
+  const rows=smartFilter(data||[], query, x=>[x.label,x.code,x.brand,x.model,x.class_name,x.destination,x.student_name,x.responsible_name,statusLabel(x.status)]);
+  if(!rows.length){h.innerHTML=`<div class="empty"><strong>Nada encontrado.</strong><span>${query?"Tente outro nome, código ou turma.":"As movimentações aparecem aqui."}</span></div>`;return}
+  h.innerHTML=`<div class="data-list">${rows.map(x=>{const who=x.student_name||x.responsible_name||"Sem responsável";const where=[x.class_name,x.destination].filter(Boolean).join(" · ");return `<div class="data-row hist-row"><div class="data-main"><strong><span class="mono">${esc(x.code||x.label)}</span>${x.model?` · ${esc(x.model)}`:""}</strong><span>${esc(who)}${where?` · ${esc(where)}`:""}</span></div><span class="status status-${esc(x.status)}">${esc(statusLabel(x.status))}</span><span class="data-date">${esc(dt(x.returned_at||x.withdrawn_at))}</span></div>`}).join("")}</div>`;
 }
 
 async function renderCarts() {
@@ -1680,7 +1794,7 @@ async function renderCarts() {
   let rows=smartFilter(data||[],state.cartSearch,c=>[c.cart_name,`carrinho ${c.cart_number}`,c.location_text,c.notes,(c.equipment_codes||[]).join(" "),`${c.item_count} equipamentos`]);
   if(!rows.length){h.innerHTML=`<div class="empty"><strong>Nenhum carrinho encontrado.</strong><span>O administrador pode cadastrar os lotes usados pela escola.</span></div>`;return}
   const perPage=50,total=rows.length,maxPage=Math.max(0,Math.ceil(total/perPage)-1);state.cartPage=Math.min(state.cartPage,maxPage);const from=state.cartPage*perPage;const page=rows.slice(from,from+perPage);
-  h.innerHTML=`<div class="data-list">${page.map(c=>{const record={id:c.cart_id,number:c.cart_number,name:c.cart_name||"",qr_token:c.qr_token,location_text:c.location_text||"",capacity:c.capacity||null,notes:c.notes||"",equipment_codes:c.equipment_codes||[],is_active:c.is_active};return `<button class="data-row cart-row" type="button" data-cart-token="${esc(c.qr_token)}" data-cart-record='${esc(JSON.stringify(record))}'><div class="data-main"><strong>${esc(c.cart_name||`Carrinho ${c.cart_number}`)}</strong><span>${Number(c.item_count||0)} equipamento(s)${c.capacity?` de ${Number(c.capacity)} vagas`:""}${c.location_text?` · ${esc(c.location_text)}`:""}</span></div><span class="status status-available">Ativo</span><span class="data-date">#${c.cart_number}</span></button>`}).join("")}</div><div class="pagination"><span>${total} carrinho(s)</span><div><button class="button small" id="cart-prev" ${state.cartPage===0?'disabled':''}>Anterior</button><button class="button small" id="cart-next" ${state.cartPage>=maxPage?'disabled':''}>Próxima</button></div></div>`;
+  h.innerHTML=`<div class="data-list">${page.map(c=>{const record={id:c.cart_id,number:c.cart_number,name:c.cart_name||"",qr_token:c.qr_token,location_text:c.location_text||"",capacity:c.capacity||null,notes:c.notes||"",equipment_codes:c.equipment_codes||[],is_active:c.is_active};return `<button class="data-row cart-row" type="button" data-cart-token="${esc(c.qr_token)}" data-cart-record='${esc(JSON.stringify(record))}'><div class="data-main"><strong>${esc(c.cart_name||`Carrinho ${c.cart_number}`)}</strong><span>${esc(c.location_text||"Local não informado")}</span></div><span class="cart-fill"><b>${Number(c.item_count||0)}</b>${c.capacity?`/${Number(c.capacity)}`:""}<small>equip.</small></span>${uiIcon("chevron",16)}</button>`}).join("")}</div><div class="pagination"><span>${total} carrinho${total===1?"":"s"}</span><div><button class="button small" id="cart-prev" ${state.cartPage===0?'disabled':''}>Anterior</button><button class="button small" id="cart-next" ${state.cartPage>=maxPage?'disabled':''}>Próxima</button></div></div>`;
   bindCommittedSearch(qs('#cart-search'),value=>{state.cartSearch=value;state.cartPage=0;renderCarts()});
   qs("#cart-prev")?.addEventListener("click",()=>{state.cartPage--;renderCarts()});qs("#cart-next")?.addEventListener("click",()=>{state.cartPage++;renderCarts()});
   qsa("[data-cart-token]").forEach(b=>b.addEventListener("click",()=>openCart(b.dataset.cartToken)));
@@ -1725,7 +1839,7 @@ async function openCartForm(item=null){
 
 async function deactivateCart(record){const ok=await confirmAction({title:"Desativar carrinho?",message:`${record.name||`Carrinho ${record.number}`} deixará de aparecer para operação, mas o histórico será preservado.`,confirmText:"Desativar",danger:true});if(!ok)return;const {error}=await supabase.from("equipment_carts").update({is_active:false}).eq("id",Number(record.id));if(error)return notify(errText(error),"error");notify("Carrinho desativado.","success");renderCarts()}
 
-async function renderMaintenance(){if(state.profile.role!=="admin")return navigate("dashboard");state.view="maintenance";const filterCount=activeFilterCount([state.maintenanceStatus]);shell(`<section class="panel workspace-panel"><h1 class="visually-hidden">Manutenção</h1><div class="toolbar workspace-toolbar"><div class="toolbar-cluster"><input id="maintenance-search" class="search" type="search" value="${esc(state.maintenanceSearch)}" placeholder="Buscar equipamento, título ou observação"><button class="filter-button ${filterCount ? 'has-active active' : ''}" id="maintenance-filter-toggle" type="button" aria-expanded="${filterCount ? 'true' : 'false'}">${icon("filter")}<span>Filtros</span>${filterBadge(filterCount)}</button></div></div><div class="filter-drawer" id="maintenance-filter-panel"><div class="filter-grid"><label>Status<select id="maintenance-status"><option value="">Todos</option><option value="open" ${state.maintenanceStatus==='open'?'selected':''}>Aberta</option><option value="resolved" ${state.maintenanceStatus==='resolved'?'selected':''}>Resolvida</option></select></label></div><div class="filter-actions"><button class="button small ghost" id="maintenance-filter-clear" type="button">Limpar filtros</button><button class="button primary small" id="maintenance-filter-apply" type="button">Aplicar</button></div></div><div id="maintenance"><div class="loading">Carregando…</div></div></section>`);const {data,error}=await supabase.from("maintenance_events").select("id,equipment_id,title,notes,resolution,status,opened_at,closed_at,equipments(code,label,brand,model)").order("opened_at",{ascending:false}).limit(300);const h=qs("#maintenance");if(error){h.innerHTML=`<div class="empty"><strong>Erro.</strong><span>${esc(errText(error))}</span></div>`;return}let rows=data||[];rows=smartFilter(rows,state.maintenanceSearch,x=>[x.title,x.notes,x.resolution,x.equipments?.label,x.equipments?.code,x.equipments?.brand,x.equipments?.model,statusLabel(x.status)]);if(state.maintenanceStatus)rows=rows.filter(x=>x.status===state.maintenanceStatus);if(!rows.length){h.innerHTML=`<div class="empty"><strong>Nenhuma manutenção registrada.</strong><span>Abra um equipamento e escolha Manutenção.</span></div>`;}else{h.innerHTML=`<div class="data-list">${rows.map(x=>`<div class="data-row"><div class="data-main"><strong>${esc(x.equipments?.label||x.equipments?.code)} · ${esc(x.title)}</strong><span>${esc(x.equipments?.brand||"")} ${esc(x.equipments?.model||"")} · aberta ${esc(dt(x.opened_at))}</span></div><span class="status status-${esc(x.status)}">${esc(statusLabel(x.status))}</span><div class="row-actions">${x.status==="open"?`<button class="button primary small" data-resolve="${x.id}">Concluir</button>`:""}</div></div>`).join("")}</div>`;qsa("[data-resolve]").forEach(b=>b.addEventListener("click",()=>resolveMaintenance(Number(b.dataset.resolve))));}bindCommittedSearch(qs('#maintenance-search'),value=>{state.maintenanceSearch=value;renderMaintenance()});wireFilterToggle("maintenance-filter-toggle", "maintenance-filter-panel");qs("#maintenance-filter-apply")?.addEventListener("click",()=>{state.maintenanceStatus=qs("#maintenance-status")?.value||"";renderMaintenance()});qs("#maintenance-filter-clear")?.addEventListener("click",()=>{state.maintenanceStatus="";renderMaintenance()});}
+async function renderMaintenance(){if(state.profile.role!=="admin")return navigate("dashboard");state.view="maintenance";const filterCount=activeFilterCount([state.maintenanceStatus]);shell(`<section class="panel workspace-panel"><h1 class="visually-hidden">Manutenção</h1><div class="toolbar workspace-toolbar"><div class="toolbar-cluster"><input id="maintenance-search" class="search" type="search" value="${esc(state.maintenanceSearch)}" placeholder="Buscar equipamento ou problema"></div></div><div class="chip-row" role="group" aria-label="Situação"><button type="button" class="chip ${!state.maintenanceStatus?'selected':''}" data-m-status="">Todas</button><button type="button" class="chip ${state.maintenanceStatus==='open'?'selected':''}" data-m-status="open">Abertas</button><button type="button" class="chip ${state.maintenanceStatus==='resolved'?'selected':''}" data-m-status="resolved">Resolvidas</button></div><div id="maintenance"><div class="loading">Carregando…</div></div></section>`);const {data,error}=await supabase.from("maintenance_events").select("id,equipment_id,title,notes,resolution,status,opened_at,closed_at,equipments(code,label,brand,model)").order("opened_at",{ascending:false}).limit(300);const h=qs("#maintenance");if(error){h.innerHTML=`<div class="empty"><strong>Erro.</strong><span>${esc(errText(error))}</span></div>`;return}let rows=data||[];rows=smartFilter(rows,state.maintenanceSearch,x=>[x.title,x.notes,x.resolution,x.equipments?.label,x.equipments?.code,x.equipments?.brand,x.equipments?.model,statusLabel(x.status)]);if(state.maintenanceStatus)rows=rows.filter(x=>x.status===state.maintenanceStatus);if(!rows.length){h.innerHTML=`<div class="empty"><strong>Nenhuma manutenção registrada.</strong><span>Abra um equipamento e escolha Manutenção.</span></div>`;}else{h.innerHTML=`<div class="data-list">${rows.map(x=>`<div class="data-row"><div class="data-main"><strong>${esc(x.equipments?.label||x.equipments?.code)} · ${esc(x.title)}</strong><span>${esc(x.equipments?.brand||"")} ${esc(x.equipments?.model||"")} · aberta ${esc(dt(x.opened_at))}</span></div><span class="status status-${esc(x.status)}">${esc(statusLabel(x.status))}</span><div class="row-actions">${x.status==="open"?`<button class="button primary small" data-resolve="${x.id}">Concluir</button>`:""}</div></div>`).join("")}</div>`;qsa("[data-resolve]").forEach(b=>b.addEventListener("click",()=>resolveMaintenance(Number(b.dataset.resolve))));}bindCommittedSearch(qs('#maintenance-search'),value=>{state.maintenanceSearch=value;renderMaintenance()});wireFilterToggle("maintenance-filter-toggle", "maintenance-filter-panel");qsa("[data-m-status]").forEach(b=>b.addEventListener("click",()=>{state.maintenanceStatus=b.dataset.mStatus;renderMaintenance()}));qs("#maintenance-filter-apply")?.addEventListener("click",()=>{state.maintenanceStatus=qs("#maintenance-status")?.value||"";renderMaintenance()});qs("#maintenance-filter-clear")?.addEventListener("click",()=>{state.maintenanceStatus="";renderMaintenance()});}
 function resolveMaintenance(id){const m=makeModal(`<div class="panel-head"><div><span class="eyebrow">Manutenção</span><h2>Concluir manutenção</h2></div><button class="icon-button" data-close>×</button></div><div class="modal-body"><form id="resolve-form" class="auth-form"><label>Resolução<textarea name="resolution" maxlength="1200" placeholder="O que foi feito"></textarea></label><div class="modal-actions"><button class="button" data-close type="button">Cancelar</button><button class="button primary" type="submit">Concluir</button></div></form></div>`);qs("#resolve-form",m).addEventListener("submit",async e=>{e.preventDefault();const b=qs('button[type="submit"]',e.currentTarget);setBusy(b,true,"Concluindo…");const f=new FormData(e.currentTarget);const {error}=await supabase.rpc("resolve_maintenance",{p_event_id:id,p_resolution:f.get("resolution").trim()||null});setBusy(b,false);if(error)return notify(errText(error),"error");notify("Manutenção concluída.","success");m.remove();renderMaintenance()})}
 
 
