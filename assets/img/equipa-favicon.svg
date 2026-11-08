@@ -1,4 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 32 32" role="img" aria-label="Equipa">
-  <rect x="1" y="1" width="30" height="30" rx="9" fill="#0f1216"/>
-  <path d="M10 10.5h12M10 16h9M10 21.5h12" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 48 48" role="img" aria-label="Equipa">
+  <rect width="48" height="48" rx="12" fill="#0f1216"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 4)">
+    <rect x="11" y="7" width="26" height="18.5" rx="2.8" fill="#1d2330" stroke="#ffffff" stroke-width="2.4"/>
+    <rect x="14.2" y="10.2" width="19.6" height="12" rx="1.4" fill="#2f6bff"/>
+    <path d="M17.5 13.6h6M17.5 16.6h10.5M17.5 19.6h4.5" stroke="#ffffff" stroke-width="1.8"/>
+    <path d="M7.5 27h33l2.6 3.9a1.5 1.5 0 0 1-1.2 2.3H6.1a1.5 1.5 0 0 1-1.2-2.3z" fill="#1d2330" stroke="#ffffff" stroke-width="2.4"/>
+  </g>
 </svg>

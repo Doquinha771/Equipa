@@ -10,6 +10,10 @@ try {
 catch { document.documentElement.dataset.theme = "light"; }
 function setEquipaTheme(theme) {
   const dark = theme === "dark";
+  // Transição suave de cores ao trocar o tema.
+  document.documentElement.classList.add("theme-anim");
+  clearTimeout(setEquipaTheme.timer);
+  setEquipaTheme.timer = setTimeout(() => document.documentElement.classList.remove("theme-anim"), 450);
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute("content", dark ? "#0b0d10" : "#f3f4f6"));
   const toggle = qs("#topbar-theme");
@@ -279,8 +283,29 @@ async function checkAvailabilitySilently() {
   if (check !== availabilityCheckGeneration || !qs("#auth-card")) return;
   if (!info.ok) renderAvailabilityError(info);
 }
-function brandMark(size = 28) {
-  return `<svg class="brand-glyph" width="${size}" height="${size}" viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="9" fill="currentColor"/><path d="M10 10.5h12M10 16h9M10 21.5h12" stroke="var(--brand-ink, #fff)" stroke-width="2.6" stroke-linecap="round"/></svg>`;
+// Logo: notebook desenhado cuja tampa abre e fecha (animação em equipa.css).
+function brandMark(size = 28, extra = "") {
+  return `<svg class="brand-glyph notebook ${extra}" width="${Math.round(size * 1.2)}" height="${size}" viewBox="0 0 48 40" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <g class="nb-deck"><path class="nb-base" d="M11 23h26l6.5 8.5h-39z" stroke-width="2.3"/><path class="nb-keys" d="M13.4 25.8h21.2M11.2 28.6h25.6" stroke-width="1.5"/><path class="nb-base" d="M4.5 31.5h39v1.1a1.9 1.9 0 0 1-1.9 1.9H6.4a1.9 1.9 0 0 1-1.9-1.9z" stroke-width="2.3"/></g>
+    <g class="nb-lid"><rect x="11" y="4" width="26" height="19" rx="3" class="nb-shell" stroke-width="2.3"/><rect x="14.2" y="7.2" width="19.6" height="12.6" rx="1.5" class="nb-screen"/><circle cx="24" cy="5.6" r=".7" class="nb-cam"/><path class="nb-code" d="M17 11h6M17 14h11M17 17h4.5" stroke-width="1.8"/></g>
+  </svg>`;
+}
+// Números contam de 0 até o valor (respeita "reduzir movimento").
+function animateNumbers(root = document) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  qsa(".st-num, .ea-stat-info strong", root).forEach(el => {
+    if (el.dataset.counted) return;
+    const target = Number(String(el.textContent).replace(/\./g, "").replace(",", "."));
+    if (!Number.isFinite(target) || target <= 0 || !/^\s*[\d.]+\s*$/.test(el.textContent)) return;
+    el.dataset.counted = "1";
+    const start = performance.now(), dur = Math.min(900, 380 + target * 12);
+    const step = now => {
+      const p = Math.min(1, (now - start) / dur), eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(target * eased).toLocaleString("pt-BR");
+      if (p < 1 && el.isConnected) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
 }
 function authErrorMessage(event) {
   const code = String(event?.code || "");
@@ -308,6 +333,7 @@ function authFrame(inner) {
     <section class="auth-brand" aria-label="Sobre o Equipa">
       <div class="auth-identity">${brandMark(30)}<strong>Equipa</strong></div>
       <div class="auth-brand-copy">
+        <div class="auth-hero-mark">${brandMark(110)}</div>
         <span class="eyebrow">Controle de patrimônio</span>
         <h1>Cada equipamento,<br>rastreado do início ao fim.</h1>
         <ul class="auth-benefits">
@@ -495,7 +521,7 @@ async function loadProfile() {
   state.profile = data;
 }
 function pageTitle() {
-  return ({ dashboard: "Visão geral", equipment: "Inventário", withdrawals: "Retiradas", history: "Histórico", carts: "Carrinhos", maintenance: "Manutenção", reports: "Relatórios", admin: "Administração", audit: "Auditoria" })[state.view] || "Equipa";
+  return ({ dashboard: "Início", equipment: "Inventário", withdrawals: "Retiradas", history: "Histórico", carts: "Carrinhos", maintenance: "Manutenção", reports: "Relatórios", admin: "Administração", audit: "Auditoria" })[state.view] || "Equipa";
 }
 function firstName() { return (state.profile?.full_name || "Usuário").trim().split(/\s+/)[0] || "Usuário"; }
 function greeting() {
@@ -577,17 +603,17 @@ function shell(content) {
   const mobileMoreItems = `${nav("carts","Carrinhos")}${nav("history","Histórico")}${admin ? nav("maintenance","Manutenção") + nav("reports","Relatórios") + nav("audit","Auditoria") + nav("admin","Administração") : ""}`;
   app.innerHTML = `<div class="app-shell">
     <aside class="sidebar" id="sidebar">
-      <div class="sidebar-brand" title="Equipa">${brandMark(28)}<div class="brand-copy"><strong>Equipa</strong><span>Controle de equipamentos</span></div></div>
+      <div class="sidebar-brand" title="Equipa">${brandMark(28)}<div class="brand-copy"><strong>Equipa</strong><span>E.E. Amador e Catharina</span></div></div>
       <nav class="nav" aria-label="Navegação principal">
         <span class="nav-group">Operação</span>
-        ${nav("dashboard","Visão geral")}${nav("equipment","Equipamentos")}${nav("withdrawals","Retiradas")}${nav("carts","Carrinhos")}${nav("history","Histórico")}
+        ${nav("dashboard","Início")}${nav("equipment","Inventário")}${nav("withdrawals","Retiradas")}${nav("carts","Carrinhos")}${nav("history","Histórico")}
         ${admin ? `<span class="nav-group">Gestão</span>${nav("maintenance","Manutenção")}${nav("reports","Relatórios")}${nav("audit","Auditoria")}${nav("admin","Administração")}` : ""}
       </nav>
       <div class="sidebar-foot"><div class="sidebar-user"><div class="sidebar-user-avatar" aria-hidden="true">${initial}</div><div class="sidebar-user-copy"><strong>${esc(state.profile?.full_name||"Usuário")}</strong><span>${esc(roleLabel(state.profile?.role))}</span></div></div><button class="logout-button" id="logout" title="Sair da conta" aria-label="Sair">${uiIcon("logout",18)}</button></div>
     </aside>
     <section class="main">
       <header class="topbar">
-        <div class="topbar-title"><span class="topbar-eyebrow">E.E. Amador e Catharina</span><h1>${esc(pageTitle())}</h1></div>
+        <div class="topbar-title">${state.view === "dashboard" ? `<span class="topbar-eyebrow">${esc(new Intl.DateTimeFormat("pt-BR",{weekday:"long",day:"numeric",month:"long"}).format(new Date()))}</span><h1>${esc(greeting())}, ${esc(firstName())}</h1>` : `<h1>${esc(pageTitle())}</h1>`}</div>
         <form class="global-search" id="global-search-form" role="search">${uiIcon("search",17)}<input id="global-search" type="search" value="${esc(currentGlobalSearchValue())}" aria-label="Pesquisar" placeholder="Buscar equipamento, pessoa ou turma" autocomplete="off"><kbd>Ctrl K</kbd></form>
         <div class="topbar-right"><button type="button" class="topbar-tool" id="topbar-alerts" aria-label="Abrir notificações" aria-haspopup="dialog" aria-expanded="false">${uiIcon("bell",20)}<i hidden></i></button><button type="button" class="topbar-tool desktop-only" id="topbar-theme" aria-label="Alternar tema">${uiIcon(dark ? "moon" : "sun",20)}</button><button type="button" class="mobile-account-badge" id="mobile-account" aria-label="Conta e mais opções">${initial}</button></div>
       </header>
@@ -805,107 +831,61 @@ function movementState(r){
   const overdue=!returned&&r.due_at&&new Date(r.due_at).getTime()<Date.now();
   return returned?"returned":overdue?"overdue":"in_use";
 }
-function renderDashboardMovementRows(rows){
- if(!rows?.length)return `<div class="ops-empty">${uiIcon("inbox",28)}<strong>Nenhuma retirada em aberto</strong><p>Quando alguém retirar um equipamento, ele aparece aqui.</p></div>`;
- return `<div class="move-table" role="list">${rows.map(r=>{const st=movementState(r),info=withdrawalSummary(r);return `<button type="button" role="listitem" class="move-row" data-withdrawal-id="${esc(r.withdrawal_id)}"><span class="move-id">#${esc(r.withdrawal_id)}</span><span class="move-main"><strong>${esc(info.receiver)}</strong><small>${esc(r.class_name||"Sem turma")} · ${esc(r.destination||"Sem destino")}</small></span><span class="move-qty">${Number(r.pending_count||0)}/${Number(r.total_count||0)}</span><span class="move-when">${esc(st==="returned"?`Devolvida ${dt(r.returned_at)}`:relativeDue(r.due_at))}</span><span class="pill pill-${st}">${st==="overdue"?"Atrasada":st==="returned"?"Devolvida":"Em uso"}</span></button>`}).join("")}</div>`;
-}
-function renderMobileMovementJourney(r){
+function renderMoveRow(r){
   const st=movementState(r);
   const owner=r.custodian_name||r.responsible_name||"Não identificado";
-  return `<button type="button" class="m-move ${st}" data-withdrawal-id="${esc(r.withdrawal_id)}">
-    <span class="m-move-icon">${uiIcon(st==="overdue"?"warning":"checkout",19)}</span>
-    <span class="m-move-body"><strong>${esc(owner)}</strong><small>${esc(r.class_name||"Sem turma")} · ${Number(r.pending_count||0)} de ${Number(r.total_count||0)} pendente(s)</small></span>
-    <span class="m-move-due ${st}">${esc(st==="returned"?"Devolvida":relativeDue(r.due_at))}</span>
+  const n=Number(r.total_count||r.pending_count||1);
+  const where=[r.class_name,r.destination].filter(Boolean).join(" · ")||"Sem turma ou destino";
+  return `<button type="button" class="move-item ${st}" data-withdrawal-id="${esc(r.withdrawal_id)}">
+    <span class="move-dot" aria-hidden="true"></span>
+    <span class="move-body"><strong>${esc(owner)}</strong><small>${esc(where)} · ${n} ${n===1?"equipamento":"equipamentos"}</small></span>
+    <span class="move-due">${esc(st==="returned"?"Devolvida":relativeDue(r.due_at))}</span>
+    ${uiIcon("chevron",16)}
   </button>`;
 }
 async function renderDashboard() {
   state.view = "dashboard";
-  shell(`<div class="loading">Carregando indicadores…</div>`);
+  shell(`<div class="loading">Carregando…</div>`);
 
   const admin = state.profile.role === "admin";
-  const base = [
-    supabase.from("equipments").select("id", { count: "exact", head: true }).eq("is_active", true),
-    supabase.from("equipments").select("id", { count: "exact", head: true }).eq("is_active", true).eq("status", "available"),
-    supabase.from("equipments").select("id", { count: "exact", head: true }).eq("status", "in_use"),
-    supabase.from("equipments").select("id", { count: "exact", head: true }).eq("status", "maintenance")
-  ];
-  const [total, available, inUse, maintenance] = (await Promise.all(base)).map(x => x.count || 0);
-  const [{data:current},{data:overdueTotal}]=await Promise.all([
+  const count = q => q.then(x => x.count || 0);
+  const [available, inUse, maintenance, home, overdueRes] = await Promise.all([
+    count(supabase.from("equipments").select("id", { count: "exact", head: true }).eq("is_active", true).eq("status", "available")),
+    count(supabase.from("equipments").select("id", { count: "exact", head: true }).eq("status", "in_use")),
+    count(supabase.from("equipments").select("id", { count: "exact", head: true }).eq("status", "maintenance")),
     supabase.rpc("home_withdrawals",{p_query:null}),
     supabase.rpc("overdue_withdrawals_count")
   ]);
-  const overdue=Number(overdueTotal||0);
-  const pendingReturns = (current || []).reduce((sum, row) => sum + Number(row.pending_count || 0), 0);
-  const safeTotal = Math.max(total,1);
-  const availablePct = Math.round(available/safeTotal*100);
-  const inUsePct = Math.round(inUse/safeTotal*100);
-  const maintenancePct = Math.round(maintenance/safeTotal*100);
-  const today = new Intl.DateTimeFormat("pt-BR", { weekday:"long", day:"2-digit", month:"long" }).format(new Date());
+  const overdue = Number(overdueRes?.data || 0);
+  // Atrasadas primeiro, depois pelo prazo mais próximo.
+  const rows = (home?.data || []).filter(r => movementState(r) !== "returned").sort((a, b) => {
+    const oa = movementState(a) === "overdue" ? 0 : 1, ob = movementState(b) === "overdue" ? 0 : 1;
+    return oa - ob || new Date(a.due_at || 8.64e15) - new Date(b.due_at || 8.64e15);
+  }).slice(0, 8);
+  const stat = (code, value, label) => `<button type="button" class="st st-${code} ${code==="overdue"&&value?"alert":""}" data-status-go="${code}"><span class="st-num">${Number(value||0).toLocaleString("pt-BR")}</span><span class="st-label">${label}</span></button>`;
 
-  const recentIds=[...new Set((current||[]).map(x=>x.withdrawal_id).filter(Boolean))].slice(0,30);
-  const recentExtra=recentIds.length ? await supabase.from("withdrawals").select("id,due_at,custodian_name,custodian_role,recorded_by_name,checkout_purpose,purpose_details").in("id",recentIds) : {data:[]};
-  const recentDetails=new Map((recentExtra.data||[]).map(x=>[String(x.id),x]));
-  const recentMobile = (current || []).slice(0,4).map(x=>({...x,...(recentDetails.get(String(x.withdrawal_id))||{})}));
-  const unavailable=Math.max(0,total-available-inUse-maintenance);
-  const unavailablePct=Math.max(0,100-availablePct-inUsePct-maintenancePct);
-  const fmt=n=>Number(n||0).toLocaleString("pt-BR");
-  const fleetBar=`<div class="fleet-bar" role="img" aria-label="${availablePct}% disponíveis, ${inUsePct}% em uso, ${maintenancePct}% em manutenção"><i class="seg-available" style="flex-basis:${availablePct}%"></i><i class="seg-in_use" style="flex-basis:${inUsePct}%"></i><i class="seg-maintenance" style="flex-basis:${maintenancePct}%"></i><i class="seg-unavailable" style="flex-basis:${unavailablePct}%"></i></div>`;
-  const kpi=(label,value,sub,view,tone="")=>`<button class="kpi ${tone}" type="button" data-go="${view}"><span class="kpi-label">${esc(label)}</span><strong class="kpi-value">${fmt(value)}</strong><small>${esc(sub)}</small></button>`;
-  shell(`<section class="overview desktop-dashboard">
-    <header class="page-head"><div><span class="eyebrow">${esc(new Intl.DateTimeFormat("pt-BR",{weekday:"long",day:"2-digit",month:"long"}).format(new Date()))}</span><h2>${esc(greeting())}, ${esc(firstName())}</h2></div>
-      <div class="page-actions"><button class="button" type="button" data-open="history">${uiIcon("history",17)} Histórico</button>${admin?`<button class="button" type="button" id="ov-add-equipment">${uiIcon("add",17)} Cadastrar</button>`:""}<button class="button primary" type="button" id="ov-checkout">${uiIcon("checkout",17)} Nova retirada</button></div></header>
-    <div class="kpi-row">
-      ${kpi("Inventário ativo",total,"equipamentos cadastrados","equipment")}
-      ${kpi("Disponíveis",available,`${availablePct}% prontos para uso`,"equipment","tone-available")}
-      ${kpi("Em uso",inUse,`${pendingReturns} item(ns) a devolver`,"withdrawals","tone-in_use")}
-      ${kpi("Atrasadas",overdue,overdue?"exigem cobrança":"nenhuma pendência","withdrawals",overdue?"tone-overdue":"")}
-      ${kpi("Manutenção",maintenance,`${maintenancePct}% do inventário`,admin?"maintenance":"equipment","tone-maintenance")}
+  shell(`<section class="home">
+    <nav class="status-strip" aria-label="Situação dos equipamentos">
+      ${stat("available", available, "Disponíveis")}${stat("in_use", inUse, "Em uso")}${stat("overdue", overdue, "Atrasadas")}${stat("maintenance", maintenance, "Manutenção")}
+    </nav>
+    <div class="home-actions">
+      <button type="button" class="button primary" id="h-checkout">${uiIcon("checkout",18)} Retirar</button>
+      <button type="button" class="button" id="h-return">${uiIcon("return",18)} Devolver</button>
+      ${admin ? `<button type="button" class="button" id="h-add">${uiIcon("add",18)} Cadastrar</button>` : ""}
     </div>
-    <section class="card fleet-card"><div class="card-head"><div><h3>Situação do inventário</h3><p>Distribuição atual de ${fmt(total)} equipamentos ativos</p></div><button class="button ghost small" type="button" data-open="equipment">Abrir inventário ${uiIcon("chevron",15)}</button></div>
-      ${fleetBar}
-      <div class="fleet-legend"><span><i class="dot dot-available"></i>Disponíveis <b>${fmt(available)}</b></span><span><i class="dot dot-in_use"></i>Em uso <b>${fmt(inUse)}</b></span><span><i class="dot dot-maintenance"></i>Manutenção <b>${fmt(maintenance)}</b></span><span><i class="dot dot-unavailable"></i>Indisponíveis <b>${fmt(unavailable)}</b></span></div>
-    </section>
-    <div class="overview-grid">
-      <section class="card"><div class="card-head"><div><h3>Retiradas em aberto</h3><p>Quem está com os equipamentos agora</p></div><button class="button ghost small" type="button" data-open="withdrawals">Ver todas ${uiIcon("chevron",15)}</button></div>${renderDashboardMovementRows((current||[]).slice(0,8))}</section>
-      <div class="overview-side">
-        <section class="card"><div class="card-head"><div><h3>Alertas</h3><p>Pendências operacionais</p></div></div>
-          <div class="alert-list">${overdue?`<button class="alert-item danger" type="button" data-overdue-alert>${uiIcon("warning",18)}<span><strong>${overdue} retirada(s) atrasada(s)</strong><small>Devolução fora do prazo</small></span>${uiIcon("chevron",15)}</button>`:""}${maintenance?`<button class="alert-item warn" type="button" data-go="${admin?"maintenance":"equipment"}">${uiIcon("maintenance",18)}<span><strong>${maintenance} em manutenção</strong><small>Fora de circulação</small></span>${uiIcon("chevron",15)}</button>`:""}${!overdue&&!maintenance?`<div class="alert-item ok">${uiIcon("check",18)}<span><strong>Tudo em ordem</strong><small>Sem pendências no momento</small></span></div>`:""}</div>
-        </section>
-        <section class="card"><div class="card-head"><div><h3>Atalhos</h3><p>Operações frequentes</p></div></div>
-          <div class="shortcut-list"><button type="button" data-open="carts">${uiIcon("carts",18)}<span>Carrinhos</span>${uiIcon("chevron",15)}</button>${admin?`<button type="button" id="ov-labels">${uiIcon("tag",18)}<span>Etiquetas QR</span>${uiIcon("chevron",15)}</button><button type="button" data-open="reports">${uiIcon("reports",18)}<span>Relatórios</span>${uiIcon("chevron",15)}</button><button type="button" data-open="admin">${uiIcon("admin",18)}<span>Usuários e acessos</span>${uiIcon("chevron",15)}</button>`:`<button type="button" data-open="history">${uiIcon("history",18)}<span>Histórico</span>${uiIcon("chevron",15)}</button>`}</div>
-        </section>
-      </div>
-    </div>
-  </section>
-
-  <section class="mobile-home mobile-dashboard-organic" aria-label="Início">
-    <div class="m-greet"><span>${esc(today)}</span><h2>${esc(greeting())}, ${esc(firstName())}</h2></div>
-    <button class="m-fleet" type="button" data-go="equipment">
-      <div class="m-fleet-top"><div><strong>${fmt(available)}</strong><span>de ${fmt(total)} disponíveis</span></div><span class="m-fleet-pct">${availablePct}%</span></div>
-      ${fleetBar}
-      <div class="m-fleet-legend"><span><i class="dot dot-in_use"></i>${fmt(inUse)} em uso</span><span><i class="dot dot-maintenance"></i>${fmt(maintenance)} manut.</span>${overdue?`<span class="danger"><i class="dot dot-overdue"></i>${fmt(overdue)} atrasada(s)</span>`:""}</div>
-    </button>
-    ${overdue?`<button class="m-alert" type="button" data-overdue-alert>${uiIcon("warning",19)}<span><strong>${overdue} devolução(ões) atrasada(s)</strong><small>Toque para cobrar</small></span>${uiIcon("chevron",16)}</button>`:""}
-    <div class="m-actions">
-      <button type="button" class="m-action primary" id="m-scan">${uiIcon("scan",22)}<span>Ler QR</span></button>
-      <button type="button" class="m-action" id="m-checkout">${uiIcon("checkout",22)}<span>Retirar</span></button>
-      <button type="button" class="m-action" id="m-return">${uiIcon("return",22)}<span>Devolver</span></button>
-      ${admin?`<button type="button" class="m-action" id="m-add">${uiIcon("add",22)}<span>Cadastrar</span></button>`:`<button type="button" class="m-action" data-go="carts">${uiIcon("carts",22)}<span>Carrinhos</span></button>`}
-    </div>
-    <section class="m-section"><div class="m-section-head"><h3>Em uso agora</h3><button type="button" data-open="withdrawals">Ver tudo</button></div>
-      <div class="m-list">${recentMobile.length ? recentMobile.map(renderMobileMovementJourney).join("") : `<div class="mobile-empty-state">${uiIcon("inbox",26)}<strong>Nenhum equipamento fora</strong><small>As retiradas em aberto aparecem aqui.</small></div>`}</div>
+    <section class="list-section">
+      <header class="section-head"><h2>Com quem estão os equipamentos</h2>${rows.length ? `<button type="button" class="link-button" data-open="withdrawals">Ver tudo</button>` : ""}</header>
+      ${rows.length ? `<div class="plain-list">${rows.map(renderMoveRow).join("")}</div>` : `<div class="empty">${uiIcon("check",26)}<strong>Nenhum equipamento fora</strong><span>Tudo guardado. As retiradas aparecem aqui.</span></div>`}
     </section>
   </section>`);
 
-  qsa("[data-go],[data-open]").forEach(b => b.addEventListener("click", () => navigate(b.dataset.go || b.dataset.open)));
-  qsa("[data-withdrawal-id]").forEach(b=>b.addEventListener("click",()=>openWithdrawalDetail(b.dataset.withdrawalId)));
-  qs("#ov-add-equipment")?.addEventListener("click",()=>window.EquipaInventory?.openHub("individual"));
-  qs("#m-add")?.addEventListener("click",()=>window.EquipaInventory?.openHub("individual"));
-  qs("#ov-labels")?.addEventListener("click",()=>window.EquipaInventory?.chooseLabels());
-  qs("#ov-checkout")?.addEventListener("click",openCheckoutEquipmentPicker);
-  qs("#m-checkout")?.addEventListener("click",openCheckoutEquipmentPicker);
-  qs("#m-scan")?.addEventListener("click",openMobileQrScanner);
-  qs("#m-return")?.addEventListener("click",()=>{state.withdrawalsStatus="in_use";navigate("withdrawals")});
+  qsa("[data-open]").forEach(b => b.addEventListener("click", () => navigate(b.dataset.open)));
+  qsa("[data-status-go]").forEach(b => b.addEventListener("click", () => { state.withdrawalsStatus = b.dataset.statusGo; navigate("withdrawals"); }));
+  qsa("[data-withdrawal-id]").forEach(b => b.addEventListener("click", () => openWithdrawalDetail(b.dataset.withdrawalId)));
+  qs("#h-checkout")?.addEventListener("click", openCheckoutEquipmentPicker);
+  qs("#h-return")?.addEventListener("click", () => { state.withdrawalsStatus = "in_use"; navigate("withdrawals"); });
+  qs("#h-add")?.addEventListener("click", () => window.EquipaInventory?.openHub("individual"));
+  animateNumbers(app);
 }
 // Menu flutuante único: coordenadas de viewport e delegação para linhas recriadas por busca/paginação.
 let activeContextTrigger = null;
@@ -1292,7 +1272,7 @@ async function renderEquipment() {
   const filterCount = activeFilterCount([state.equipmentFilters.status, state.equipmentFilters.active==="active" ? "" : state.equipmentFilters.active, state.equipmentFilters.group]);
   const statusChips=[["","Todos"],["available","Disponíveis"],["in_use","Em uso"],["maintenance","Manutenção"],["unavailable","Indisponíveis"]].map(([v,l])=>`<button type="button" class="chip ${state.equipmentFilters.status===v?"selected":""}" data-status-chip="${v}">${l}</button>`).join("");
   shell(`<section class="ref-equipment-page"><div class="ref-page-heading compact-page-actions"><h1 class="visually-hidden">Inventário</h1><div class="ref-heading-actions">${admin?`<button class="button" id="inventory-labels">${uiIcon("tag",17)} Etiquetas</button><button class="button" id="import-equipment">${uiIcon("upload",17)} Importar</button><button class="button primary" id="new-equipment">${uiIcon("add",17)} Cadastrar</button>`:""}</div></div>
-  <div class="ref-search-panel"><div class="ref-search-line"><label class="ref-search-control">${uiIcon("search",18)}<input class="search" id="equipment-search" type="search" value="${esc(state.equipmentSearch)}" placeholder="Código, patrimônio, modelo ou local"></label><button class="ref-filter-action" id="equipment-filter-toggle" type="button" aria-expanded="true" aria-label="Filtros">${uiIcon("filter",17)}<span>Filtros</span>${filterBadge(filterCount)}</button><button type="button" class="button ghost desktop-only" id="equipment-reset">${uiIcon("rotate",16)} Limpar</button></div>
+  <div class="ref-search-panel"><div class="ref-search-line"><label class="ref-search-control">${uiIcon("search",18)}<input class="search" id="equipment-search" type="search" value="${esc(state.equipmentSearch)}" placeholder="Código, patrimônio, modelo ou local"></label><button class="ref-filter-action" id="equipment-filter-toggle" type="button" aria-expanded="false" aria-label="Filtros">${uiIcon("filter",17)}<span>Filtros</span>${filterBadge(filterCount)}</button><button type="button" class="button ghost desktop-only" id="equipment-reset">${uiIcon("rotate",16)} Limpar</button></div>
   <div class="chip-row" role="group" aria-label="Filtrar por situação">${statusChips}</div><div class="filter-drawer ref-equipment-filters" id="equipment-filter-panel"><div class="filter-grid"><label>Situação<select id="equipment-status"><option value="">Todas</option><option value="available" ${state.equipmentFilters.status==='available'?'selected':''}>Disponível</option><option value="in_use" ${state.equipmentFilters.status==='in_use'?'selected':''}>Em uso</option><option value="maintenance" ${state.equipmentFilters.status==='maintenance'?'selected':''}>Manutenção</option><option value="unavailable" ${state.equipmentFilters.status==='unavailable'?'selected':''}>Indisponível</option></select></label><label>Tipo<select id="equipment-group"><option value="">Todos</option>${schoolGroupOptions(state.equipmentFilters.group)}</select></label><label>Localização<input id="equipment-location" value="${esc(state.equipmentFilters.location||"")}" placeholder="Todas as localizações"></label><label>Modelo<input id="equipment-model-filter" value="${esc(state.equipmentFilters.model||"")}" placeholder="Todos os modelos"></label><label class="ref-hidden-active">Catálogo<select id="equipment-active"><option value="active" ${state.equipmentFilters.active==='active'?'selected':''}>Ativos</option><option value="">Todos</option><option value="inactive" ${state.equipmentFilters.active==='inactive'?'selected':''}>Inativos</option></select></label></div><div class="filter-actions"><button type="button" class="button small ghost" id="equipment-filter-clear">Limpar</button><button type="button" class="button small primary" id="equipment-filter-apply">Aplicar filtros</button></div></div></div>
   <section class="ref-results-panel"><header class="ref-results-heading"><strong id="equipment-count">Consultando equipamentos...</strong><div class="ref-display-controls"><button id="equipment-label-selected" type="button" class="ref-outline-action" hidden>PDF dos selecionados</button><button type="button" class="ref-display-button active" id="equip-list-view" aria-label="Visualização em lista">${uiIcon("list",19)}</button><button type="button" class="ref-display-button" id="equip-grid-view" aria-label="Visualização em grade">${uiIcon("grid",19)}</button><select id="equipment-sort" aria-label="Ordenar equipamentos"><option value="code">Código</option><option value="recent">Mais recentes</option></select></div></header><div id="equipment-results"><div class="loading">Carregando equipamentos…</div></div></section></section>`);
   const host = qs("#equipment-results");
@@ -1331,7 +1311,6 @@ async function renderEquipment() {
     clearTimeout(timer);state.equipmentSearch=e.target.value;state.equipmentPage=0;
     timer=setTimeout(refreshEquipmentSearch,430);
   });
-  if(matchMedia("(min-width:821px)").matches) qs("#equipment-filter-panel")?.classList.add("open");
   wireFilterToggle("equipment-filter-toggle", "equipment-filter-panel");
   const applyRefFilters=()=>{state.equipmentFilters.status=qs("#equipment-status")?.value||"";state.equipmentFilters.active=qs("#equipment-active")?.value||"";state.equipmentFilters.group=qs("#equipment-group")?.value||"";state.equipmentFilters.location=qs("#equipment-location")?.value.trim()||"";state.equipmentFilters.model=qs("#equipment-model-filter")?.value.trim()||"";state.equipmentPage=0;renderEquipment()};
   qs("#equipment-filter-apply")?.addEventListener("click",applyRefFilters);
@@ -1528,16 +1507,17 @@ function withdrawalSummary(r){
 }
 async function renderWithdrawals(){
   state.view="withdrawals";
+  const chip=(v,l)=>`<button type="button" data-ops-quick="${v}" class="chip ${state.withdrawalsStatus===v?'selected':''}">${l}<span class="chip-count" data-count-for="${v}"></span></button>`;
   shell(`<section class="operations-page" aria-label="Situação atual dos equipamentos">
-    <header class="ops-heading ops-heading-compact"><h1 class="visually-hidden">Retiradas</h1><button class="button primary ops-create" id="withdrawal-new-desktop" type="button">${uiIcon("plus",18)} Nova retirada</button></header>
-    <section class="ops-summary" id="withdrawal-overview" aria-label="Situação do inventário" aria-live="polite"><div class="loading">Carregando situação…</div></section>
-    <section class="ops-search-panel"><label class="ops-search">${uiIcon("search",19)}<input id="withdrawal-search" type="search" value="${esc(state.withdrawalsSearch)}" autocomplete="off" placeholder="Buscar equipamento, pessoa, turma, destino ou patrimônio" aria-label="Buscar equipamentos e retiradas"></label>
-      <div class="ops-filters"><label>Situação<select id="ops-status"><option value="" ${!state.withdrawalsStatus?'selected':''}>Todos</option><option value="attention" ${state.withdrawalsStatus==='attention'?'selected':''}>Precisam de atenção</option><option value="in_use" ${state.withdrawalsStatus==='in_use'?'selected':''}>Em uso (inclui atrasadas)</option><option value="not_in_use" ${state.withdrawalsStatus==='not_in_use'?'selected':''}>Não em uso</option><option value="available" ${state.withdrawalsStatus==='available'?'selected':''}>Disponíveis</option><option value="overdue" ${state.withdrawalsStatus==='overdue'?'selected':''}>Atrasadas</option><option value="maintenance" ${state.withdrawalsStatus==='maintenance'?'selected':''}>Manutenção</option><option value="unavailable" ${state.withdrawalsStatus==='unavailable'?'selected':''}>Indisponíveis</option></select></label>
-      <label>Ordenar por<select id="withdrawal-sort"><option value="priority" ${state.withdrawalsSort==='priority'?'selected':''}>Pendências primeiro</option><option value="recent" ${state.withdrawalsSort==='recent'?'selected':''}>Mais recentes</option><option value="code" ${state.withdrawalsSort==='code'?'selected':''}>Código do equipamento</option></select></label></div></section>
-    <div class="ops-quick-tabs" role="group" aria-label="Filtrar situação"><button type="button" data-ops-quick="" class="${!state.withdrawalsStatus?'selected':''}">Todos</button><button type="button" data-ops-quick="in_use" class="${state.withdrawalsStatus==='in_use'?'selected':''}">Em uso</button><button type="button" data-ops-quick="not_in_use" class="${state.withdrawalsStatus==='not_in_use'?'selected':''}">Não em uso</button><button type="button" data-ops-quick="available" class="${state.withdrawalsStatus==='available'?'selected':''}">Disponíveis</button><button type="button" data-ops-quick="attention" class="${state.withdrawalsStatus==='attention'?'selected':''}">Atenção</button></div>
+    <h1 class="visually-hidden">Retiradas</h1>
+    <section class="ops-search-panel"><label class="ops-search">${uiIcon("search",18)}<input id="withdrawal-search" type="search" value="${esc(state.withdrawalsSearch)}" autocomplete="off" placeholder="Buscar equipamento, pessoa ou turma" aria-label="Buscar equipamentos e retiradas"></label>
+      <button class="button primary ops-create desktop-only" id="withdrawal-new-desktop" type="button">${uiIcon("checkout",18)} Nova retirada</button>
+      <div hidden><select id="ops-status"><option value=""></option><option value="attention"></option><option value="in_use"></option><option value="not_in_use"></option><option value="available"></option><option value="overdue"></option><option value="maintenance"></option><option value="unavailable"></option></select><select id="withdrawal-sort"><option value="priority"></option></select></div></section>
+    <div class="ops-quick-tabs chip-row" role="group" aria-label="Filtrar situação">${chip("","Todos")}${chip("in_use","Em uso")}${chip("overdue","Atrasadas")}${chip("available","Disponíveis")}${chip("maintenance","Manutenção")}</div>
     <div id="withdrawals" class="ops-results" aria-live="polite"><div class="loading">Consultando equipamentos…</div></div>
-    <button class="withdrawal-mobile-cta" id="withdrawal-new-mobile" type="button">${uiIcon("plus",19)} Nova retirada</button>
+    <button class="withdrawal-mobile-cta" id="withdrawal-new-mobile" type="button">${uiIcon("checkout",19)} Nova retirada</button>
   </section>`);
+  if(qs("#ops-status"))qs("#ops-status").value=state.withdrawalsStatus||"";
   const openPicker=()=>openCheckoutEquipmentPicker();
   qs("#withdrawal-new-desktop")?.addEventListener("click",openPicker);
   qs("#withdrawal-new-mobile")?.addEventListener("click",openPicker);
@@ -1578,9 +1558,9 @@ function renderOpsRows(rows){
   const when=active?(e.due_at?dt(e.due_at):"Prazo não informado"):(e.updated_at?`Atualizado ${dt(e.updated_at)}`:"Sem movimentação recente");
   const opens=Boolean(e.withdrawal_id)&&active;
   const action=opens?`<button type="button" data-withdrawal-id="${esc(e.withdrawal_id)}" aria-label="Abrir retirada de ${esc(e.code)}">Detalhes ${uiIcon("arrow",15)}</button>`:`<button type="button" data-ops-equipment="${esc(e.id)}" aria-label="Abrir equipamento ${esc(e.code)}">${st==="available"?"Retirar":"Detalhes"} ${uiIcon("arrow",15)}</button>`;
-  return `<tr class="ops-table-row" data-condition="${condition.toLowerCase()}"><td data-label="Equipamento"><strong>${esc(e.code)}</strong><small>${esc([e.brand,e.model].filter(Boolean).join(" ")||e.label||"Equipamento")}</small></td><td data-label="Situação"><span class="ops-badge ${st}">${esc(opsStatusLabel(st))}</span><span class="ops-health ${condition.toLowerCase()}">${esc(condition)}</span></td><td data-label="Registrado por">${esc(operator)}</td><td data-label="Em posse de">${esc(person)}${active&&e.custodian_role?`<small>${esc(withdrawalRoleLabel(e.custodian_role))}${e.custody_mode==="delegate"?" · declarado":""}</small>`:""}</td><td data-label="Turma / Local">${active&&e.class_name?`<strong>${esc(e.class_name)}</strong>`:""}<small>${esc(location)}</small></td><td data-label="Motivo">${esc(reason)}</td><td data-label="Previsão">${esc(when)}</td><td data-label="Ações">${action}</td></tr>`;
+  return `<tr class="ops-table-row ${st}" data-condition="${condition.toLowerCase()}"><td data-label="Equipamento"><strong>${esc(e.code)}</strong><small>${esc([e.brand,e.model].filter(Boolean).join(" ")||e.label||"Equipamento")}</small></td><td data-label="Situação"><span class="ops-badge ${st}">${esc(opsStatusLabel(st))}</span></td><td data-label="Com quem">${active?`${esc(person)}${e.custodian_role?`<small>${esc(withdrawalRoleLabel(e.custodian_role))}</small>`:""}`:`<span class="muted">—</span>`}</td><td data-label="Onde">${active&&e.class_name?`${esc(e.class_name)}<small>${esc(location)}</small>`:esc(location)}</td><td data-label="Prazo">${active?esc(e.due_at?relativeDue(e.due_at):"Sem prazo"):`<span class="muted">—</span>`}</td><td data-label="Ações">${action}</td></tr>`;
  }).join("");
- return `<div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Equipamento</th><th>Situação</th><th>Registrado por</th><th>Em posse de</th><th>Turma / Local</th><th>Motivo</th><th>Previsão / atualização</th><th>Ações</th></tr></thead><tbody>${cells}</tbody></table></div><div class="ops-table-foot">${rows.length} equipamento(s) exibido(s)</div>`;
+ return `<div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Equipamento</th><th>Situação</th><th>Com quem</th><th>Onde</th><th>Prazo</th><th></th></tr></thead><tbody>${cells}</tbody></table></div><div class="ops-table-foot">${rows.length} equipamento(s)</div>`;
 }
 let operationsSnapshot=null;
 function paintOperationalSnapshot(){
@@ -1589,7 +1569,10 @@ function paintOperationalSnapshot(){
  const {inventory,activeError}=snapshot;
  let rows=snapshot.rows.slice();
  const counts={in_use:0,available:0,overdue:0,maintenance:0,unavailable:0};for(const r of rows)counts[operationalState(r)]++;
+ const chipCounts={"":rows.length,in_use:counts.in_use+counts.overdue,overdue:counts.overdue,available:counts.available,maintenance:counts.maintenance};
+ qsa('[data-count-for]').forEach(el=>{const n=chipCounts[el.dataset.countFor];el.textContent=n==null?'':String(n);el.closest('.chip')?.classList.toggle('has-alert',el.dataset.countFor==='overdue'&&n>0);});
  if(overview)overview.innerHTML=`${[['in_use','Em uso','Equipamentos em circulação'],['available','Disponíveis','Prontos para retirada'],['overdue','Atrasadas','Devoluções fora do prazo'],['maintenance','Manutenção','Precisam de reparo']].map(([code,title,sub])=>`<button class="ops-stat ${code}" data-ops-stat="${code}" type="button"><span class="ops-stat-title">${esc(title)}</span><strong>${code==='in_use'?counts.in_use+counts.overdue:counts[code]}</strong><small>${esc(sub)}</small></button>`).join('')}${counts.unavailable?`<p class="ops-disabled-count">${counts.unavailable} equipamento(s) indisponível(is)</p>`:''}`;
+ if(overview&&!overview.dataset.animated){overview.dataset.animated="1";animateNumbers(overview);}else overview?.classList.add("no-enter");
  qsa('[data-ops-stat]').forEach(b=>b.addEventListener('click',()=>{state.withdrawalsStatus=b.dataset.opsStat;qs('#ops-status').value=state.withdrawalsStatus;qsa('[data-ops-quick]').forEach(x=>x.classList.toggle('selected',x.dataset.opsQuick===state.withdrawalsStatus));paintOperationalSnapshot();}));
  if(state.withdrawalsStatus==='attention')rows=rows.filter(e=>['overdue','maintenance','unavailable'].includes(operationalState(e)));
  else if(state.withdrawalsStatus==='not_in_use')rows=rows.filter(e=>['available','maintenance','unavailable'].includes(operationalState(e)));
@@ -1598,6 +1581,8 @@ function paintOperationalSnapshot(){
  rows=smartFilter(rows,state.withdrawalsSearch,e=>[e.code,e.asset_tag,e.label,e.brand,e.model,e.location_text,e.class_name,e.destination,e.custodian_name,e.responsible_name,e.recorded_by_name,e.student_name,e.checkout_purpose,withdrawalPurposeLabel(e.checkout_purpose),operationalState(e),opsStatusLabel(operationalState(e))]);
  rows.sort((a,b)=>state.withdrawalsSort==='code'?String(a.code).localeCompare(String(b.code),'pt-BR',{numeric:true}):state.withdrawalsSort==='recent'?new Date(b.withdrawn_at||b.updated_at||0)-new Date(a.withdrawn_at||a.updated_at||0):opsStatusPriority[operationalState(a)]-opsStatusPriority[operationalState(b)]||String(a.code).localeCompare(String(b.code),'pt-BR',{numeric:true}));
  host.innerHTML=renderOpsRows(rows);
+ // A linha inteira abre o equipamento/retirada (o botão fica só como atalho no desktop).
+ qsa('.ops-table-row',host).forEach(tr=>{tr.tabIndex=0;tr.addEventListener('click',e=>{if(e.target.closest('button'))return;tr.querySelector('td[data-label="Ações"] button')?.click();});tr.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target===tr)tr.querySelector('td[data-label="Ações"] button')?.click();});});
  qsa('[data-withdrawal-id]',host).forEach(b=>b.addEventListener('click',()=>openWithdrawalDetail(b.dataset.withdrawalId)));
  qsa('[data-ops-equipment]',host).forEach(b=>b.addEventListener('click',async()=>{const item=inventory.find(x=>x.id===b.dataset.opsEquipment);if(!item)return;if(item.status==='available')openCheckoutModal([item]);else openEquipment(item.id)}));
  if(activeError&&state.profile?.role!=='student')notify('Alguns detalhes de posse não estão disponíveis para esta conta.','warning');
@@ -2061,7 +2046,7 @@ function withTimeout(promise, ms = STARTUP_TIMEOUT_MS, label = "operação") {
 }
 
 function showBootLoader() {
-  app.innerHTML = `<main class="boot" aria-label="Carregando"><div class="iphone-loader"><i></i></div></main>`;
+  app.innerHTML = `<main class="boot" aria-label="Carregando"><div class="boot-mark">${brandMark(56, "fast")}<span>Carregando…</span></div></main>`;
 }
 
 function renderStartupError(error) {
