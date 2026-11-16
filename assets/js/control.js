@@ -449,67 +449,141 @@ async function openCart(token) {
   };
   paint();
 }
+/**
+ * Editor de carrinho: só aceita computadores já registrados.
+ * Escolha por modelo/tipo ("pegar 30 Chromebooks"), toque para pôr ou tirar um
+ * número, e um resumo de logística (vagas, tipos, plataformas, o que vem de outro
+ * carrinho, o que está emprestado). Um computador fica em um carrinho só.
+ */
 async function openCartForm(rec = null) {
   const editing = !!rec?.id;
-  const [devices, map] = await Promise.all([loadDevices().catch(() => []), loadCartMap().catch(() => ({ carts: [], byCode: new Map() }))]);
+  const m = openSheet({ size: "full", className: "cart-editor", title: editing ? `Editar ${esc(cartName({ cart_name: rec.name, cart_number: rec.number }))}` : "Novo carrinho", subtitle: "Escolha entre os computadores registrados. Toque para pôr ou tirar.", body: loadingState("Carregando computadores…") });
+  let devices, map;
+  try { [devices, map] = await Promise.all([loadDevices({ force: true }), loadCartMap(true)]); }
+  catch (error) { setSheet(m, { body: emptyState("Não foi possível carregar.", errText(error), "warn") }); return; }
+  if (!m.isConnected) return;
   const nextNumber = Math.max(0, ...map.carts.map(c => Number(c.cart_number) || 0)) + 1;
-  const m = openSheet({ size: "md", title: editing ? "Editar carrinho" : "Novo carrinho", subtitle: "Diga quais números ficam guardados nele.",
-    body: `<form id="cart-form" class="form" autocomplete="off"><div class="grid-2"><label class="field"><span>Número do carrinho *</span><input name="number" type="number" min="1" required value="${esc(rec?.number || nextNumber)}"></label><label class="field"><span>Nome</span><input name="name" maxlength="120" value="${esc(rec?.name || "")}" placeholder="Ex.: Carrinho azul"></label>
-      <label class="field"><span>Onde fica</span><input name="location_text" maxlength="160" value="${esc(rec?.location_text || "")}" placeholder="Ex.: Sala maker" list="cart-locs"></label><label class="field"><span>Vagas</span><input name="capacity" type="number" min="1" max="200" value="${esc(rec?.capacity || "")}" placeholder="Automático"></label></div>
-      ${EquipaSettings.locationDatalist("cart-locs", devices.map(d => d.location_text))}
-      <label class="field"><span>Números dos equipamentos *</span><textarea name="codes" required rows="3" placeholder="1-30  ou  1, 2, 3">${esc(compactCodes(rec?.equipment_codes || []))}</textarea><small class="hint">Aceita intervalos: “1-30” vira 1, 2, … 30. Vários: “1-15, TP-01-TP-05”.</small></label>
-      <div class="preview" id="cart-check" aria-live="polite"></div>
-      <label class="check" id="cart-move-wrap" hidden><input type="checkbox" name="move"><span>Tirar estes equipamentos do outro carrinho e colocar neste</span></label>
-      <label class="check"><input type="checkbox" name="set_location" checked><span>Atualizar o local dos equipamentos para o local do carrinho</span></label>
-      <label class="field"><span>Observações</span><textarea name="notes" maxlength="1200" rows="2">${esc(rec?.notes || "")}</textarea></label></form>`,
-    foot: `${editing ? `<button class="btn btn-ghost danger" type="button" id="cart-off">Desativar</button>` : ""}<button class="btn" type="button" data-close>Cancelar</button><button class="btn btn-primary" type="submit" form="cart-form">Salvar</button>` });
-  const form = qs("#cart-form", m), check = qs("#cart-check", m);
+  const byId = new Map(devices.map(d => [String(d.id), d]));
   const byCode = new Map(devices.map(d => [norm(d.code), d]));
-  // Confere tudo antes de enviar: número do carrinho, números inexistentes e equipamentos em outro carrinho.
-  const analyse = () => {
-    const codes = expandCodes(form.elements.codes.value), number = Number(form.elements.number.value);
-    const missing = codes.filter(c => !byCode.has(norm(c)));
-    const taken = codes.filter(c => { const c2 = map.byCode.get(norm(c)); return c2 && String(c2.cart_id) !== String(rec?.id ?? ""); });
-    const numberTaken = map.carts.find(c => Number(c.cart_number) === number && String(c.cart_id) !== String(rec?.id ?? ""));
+  const myId = String(rec?.id ?? "");
+  const otherCart = d => { const c = map.byCode.get(norm(d.code)); return c && String(c.cart_id) !== myId ? c : null; };
+  // Seleção atual: os do carrinho (edição) ou os sugeridos (ex.: vindos do cadastro).
+  const chosen = new Set((rec?.equipment_codes || []).map(c => byCode.get(norm(c))?.id).filter(Boolean).map(String));
+  const ui = { q: "", by: "model", show: "free", open: new Set() };
+
+  setSheet(m, { body: `<div class="ce-grid">
+      <section class="ce-pick">
+        <div class="toolbar toolbar-tight">
+          <label class="search">${icon("search", 18)}<input id="ce-q" type="search" placeholder="Número ou modelo" autocomplete="off"></label>
+          <div class="segmented" role="group" aria-label="Agrupar"><button type="button" data-by="model" class="on">${icon("laptop", 15)}<span>Modelo</span></button><button type="button" data-by="type">${icon("layers", 15)}<span>Tipo</span></button></div>
+          <div class="segmented" role="group" aria-label="Mostrar"><button type="button" data-show="free" class="on">Sem carrinho</button><button type="button" data-show="all">Todos</button></div>
+        </div>
+        <div id="ce-groups"></div>
+      </section>
+      <aside class="ce-side">
+        <form id="cart-form" class="form" autocomplete="off">
+          <div class="grid-2"><label class="field"><span>Número *</span><input name="number" type="number" min="1" required value="${esc(rec?.number || nextNumber)}"></label><label class="field"><span>Vagas</span><input name="capacity" type="number" min="1" max="200" value="${esc(rec?.capacity || "")}" placeholder="Sem limite"></label></div>
+          <label class="field"><span>Nome</span><input name="name" maxlength="120" value="${esc(rec?.name || "")}" placeholder="Ex.: Carrinho azul"></label>
+          <label class="field"><span>Onde fica</span><input name="location_text" maxlength="160" value="${esc(rec?.location_text || "")}" placeholder="Ex.: Sala maker" list="cart-locs"></label>
+          ${EquipaSettings.locationDatalist("cart-locs", devices.map(d => d.location_text))}
+        </form>
+        <div class="ce-sum" id="ce-sum"></div>
+        <div class="ce-in"><div class="section-head"><h3>No carrinho</h3><button type="button" class="link" id="ce-clear">Tirar todos</button></div><div class="ce-chips" id="ce-in"></div></div>
+        <label class="check"><input type="checkbox" id="ce-setloc" checked><span>Atualizar o local dos computadores para o local do carrinho</span></label>
+        <label class="field"><span>Observações</span><textarea name="notes" form="cart-form" maxlength="1200" rows="2">${esc(rec?.notes || "")}</textarea></label>
+      </aside></div>`,
+    foot: `${editing ? `<button class="btn btn-ghost danger" type="button" id="cart-off">Desativar</button>` : ""}<span class="foot-info" id="ce-foot"></span><button class="btn" type="button" data-close>Cancelar</button><button class="btn btn-primary btn-lg" type="submit" form="cart-form" id="ce-save">Salvar carrinho</button>` });
+
+  const form = qs("#cart-form", m), groupsHost = qs("#ce-groups", m);
+  const groupKey = d => ui.by === "type" ? schoolGroupLabel(d.school_group) : modelKey(d);
+  const free = d => !otherCart(d) && !chosen.has(String(d.id));
+  const add = ids => { const cap = Number(form.elements.capacity.value) || 0; let n = 0; for (const id of ids) { if (cap && chosen.size >= cap) { notify(`O carrinho tem ${cap} vagas.`, "warning"); break; } if (!chosen.has(id)) { chosen.add(id); n++; } } return n; };
+
+  const paintSide = () => {
+    const list = [...chosen].map(id => byId.get(id)).filter(Boolean).sort((a, b) => numSort(a.code, b.code));
     const cap = Number(form.elements.capacity.value) || 0;
-    const msgs = [];
-    if (numberTaken) msgs.push(`O número ${number} já é do “${esc(cartName(numberTaken))}”. Use ${nextNumber}.`);
-    if (missing.length) msgs.push(`Não cadastrados: <b>${esc(missing.slice(0, 12).join(", "))}${missing.length > 12 ? "…" : ""}</b>. Cadastre antes ou corrija.`);
-    if (taken.length) msgs.push(`Já estão em outro carrinho: <b>${esc(taken.slice(0, 12).join(", "))}${taken.length > 12 ? "…" : ""}</b>.`);
-    if (cap && codes.length > cap) msgs.push(`São ${codes.length} equipamentos para ${cap} vagas.`);
-    check.innerHTML = codes.length ? `<div class="preview-head"><b>${codes.length - missing.length} equipamento(s) no carrinho</b></div>${msgs.length ? `<div class="callout callout-warn">${icon("warn", 16)}<span>${msgs.join("<br>")}</span></div>` : ""}` : "";
-    qs("#cart-move-wrap", m).hidden = !taken.length;
-    return { codes, missing, taken, numberTaken, cap };
+    const fromOther = list.filter(otherCart), out = list.filter(d => d.status === "in_use"), fix = list.filter(d => d.status === "maintenance");
+    const count = (arr, f) => { const c = new Map(); arr.forEach(d => { const k = f(d) || "—"; c.set(k, (c.get(k) || 0) + 1); }); return [...c].sort((a, b) => b[1] - a[1]); };
+    const types = count(list, d => modelKey(d)), oss = count(list, d => d.operating_system);
+    qs("#ce-in", m).innerHTML = list.length ? list.map(d => `<button type="button" class="t-item t-item-x ${otherCart(d) ? "warn" : ""}" data-rm="${esc(d.id)}" title="Tirar Nº ${esc(d.code)}">${icon("laptop", 13)}${esc(d.code)}<i>${icon("x", 11)}</i></button>`).join("") : `<p class="lane-empty">Nenhum computador ainda. Escolha à esquerda.</p>`;
+    qs("#ce-sum", m).innerHTML = `<div class="ce-cap ${cap && list.length > cap ? "over" : ""}"><b>${list.length}</b><span>${cap ? `de ${cap} vagas${list.length < cap ? ` · faltam ${cap - list.length}` : list.length > cap ? ` · ${list.length - cap} a mais` : " · completo"}` : "computadores"}</span>${cap ? `<i style="width:${Math.min(100, Math.round(list.length * 100 / cap))}%"></i>` : ""}</div>
+      ${types.length ? `<div class="ce-mix">${types.map(([k, n]) => `<span>${icon("laptop", 13)} ${n} × ${esc(k)}</span>`).join("")}</div>` : ""}
+      ${oss.length > 1 ? `<p class="hint">${icon("info", 14)} Plataformas misturadas: ${esc(oss.map(([k, n]) => `${n} ${k}`).join(", "))}.</p>` : ""}
+      ${fromOther.length ? `<p class="hint warn">${icon("cart", 14)} ${fromOther.length} sairão de outro carrinho: ${esc(fromOther.slice(0, 8).map(d => `${d.code} (${cartName(otherCart(d))})`).join(", "))}${fromOther.length > 8 ? "…" : ""}.</p>` : ""}
+      ${out.length ? `<p class="hint">${icon("clock", 14)} ${out.length} estão emprestados agora (${esc(out.slice(0, 6).map(d => d.code).join(", "))}); voltam para este carrinho na devolução.</p>` : ""}
+      ${fix.length ? `<p class="hint">${icon("tool", 14)} ${fix.length} em manutenção.</p>` : ""}`;
+    qs("#ce-foot", m).textContent = list.length ? `${list.length} no carrinho` : "Carrinho vazio";
+    qs("#ce-save", m).disabled = !list.length || (cap && list.length > cap);
+    qsa("[data-rm]", m).forEach(b => b.addEventListener("click", () => { chosen.delete(b.dataset.rm); paint(); }));
   };
-  form.addEventListener("input", analyse); analyse();
+  const paint = () => {
+    const vis = smartFilter(devices, ui.q, d => [d.code, d.model, schoolGroupLabel(d.school_group), d.location_text]).filter(d => ui.show === "all" || free(d) || chosen.has(String(d.id)));
+    const groups = new Map();
+    vis.forEach(d => { const k = groupKey(d); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(d); });
+    const list = [...groups].map(([k, items]) => ({ k, items: items.sort((a, b) => numSort(a.code, b.code)) })).sort((a, b) => b.items.length - a.items.length || numSort(a.k, b.k));
+    groupsHost.innerHTML = list.length ? list.map((g, gi) => {
+      const nFree = g.items.filter(free).length, nIn = g.items.filter(d => chosen.has(String(d.id))).length, nOther = g.items.filter(d => otherCart(d) && !chosen.has(String(d.id))).length;
+      const open = ui.open.has(g.k) || !!ui.q;
+      return `<section class="group ce-group ${open ? "" : "collapsed"}" data-g="${gi}">
+        <header class="group-head"><button type="button" class="group-toggle" data-toggle>${icon("down", 18)}<span class="group-ic">${groupIcon(g.items[0]?.school_group, 20)}</span><span><b>${esc(g.k)}</b><small>${nFree} sem carrinho${nIn ? ` · ${nIn} neste` : ""}${nOther ? ` · ${nOther} em outro` : ""}</small></span></button>
+          <div class="group-actions"><span class="qty"><input type="number" min="1" max="${Math.max(1, nFree)}" placeholder="Qtd." data-qty aria-label="Quantos de ${esc(g.k)}"><button type="button" class="btn btn-sm btn-primary" data-qty-go ${nFree ? "" : "disabled"}>Pôr</button></span><button type="button" class="btn btn-sm" data-all ${nFree ? "" : "disabled"}>Todos (${nFree})</button>${nIn ? `<button type="button" class="btn btn-sm btn-ghost" data-none>Tirar ${nIn}</button>` : ""}</div></header>
+        <div class="slots">${g.items.map(d => { const id = String(d.id), on = chosen.has(id), oc = otherCart(d); return `<button type="button" class="slot ${on ? "picked" : oc ? "s-maintenance" : `s-${esc(d.status === "in_use" ? "in_use" : "available")}`}" data-id="${esc(id)}" title="Nº ${esc(d.code)}${oc ? ` · está no ${esc(cartName(oc))}` : ""}">${icon("laptop", 20)}<span>${esc(d.code)}</span>${oc && !on ? `<small>${esc(cartName(oc)).slice(0, 12)}</small>` : ""}</button>`; }).join("")}</div>
+      </section>`;
+    }).join("") : emptyState(ui.show === "free" ? "Todos os computadores já estão em carrinhos." : "Nada encontrado.", ui.show === "free" ? "Mostre “Todos” para mover de outro carrinho." : "", "laptop");
+    qsa("[data-toggle]", groupsHost).forEach(b => b.addEventListener("click", () => { const k = list[Number(b.closest("[data-g]").dataset.g)].k; if (ui.open.has(k)) ui.open.delete(k); else ui.open.add(k); paint(); }));
+    qsa("[data-id]", groupsHost).forEach(b => b.addEventListener("click", () => { const id = b.dataset.id; if (chosen.has(id)) chosen.delete(id); else add([id]); paint(); }));
+    qsa("[data-all]", groupsHost).forEach(b => b.addEventListener("click", () => { const g = list[Number(b.closest("[data-g]").dataset.g)]; add(g.items.filter(free).map(d => String(d.id))); paint(); }));
+    qsa("[data-none]", groupsHost).forEach(b => b.addEventListener("click", () => { const g = list[Number(b.closest("[data-g]").dataset.g)]; g.items.forEach(d => chosen.delete(String(d.id))); paint(); }));
+    qsa("[data-qty-go]", groupsHost).forEach(b => b.addEventListener("click", () => {
+      const sec = b.closest("[data-g]"), g = list[Number(sec.dataset.g)], want = Number(qs("[data-qty]", sec).value) || 0;
+      if (want < 1) return qs("[data-qty]", sec).focus();
+      const pool = g.items.filter(free).map(d => String(d.id));
+      const n = add(pool.slice(0, want));
+      if (n < want) notify(`Só havia ${n} ${g.k} sem carrinho.`, "warning");
+      paint();
+    }));
+    qsa("[data-by]", m).forEach(x => x.classList.toggle("on", x.dataset.by === ui.by));
+    qsa("[data-show]", m).forEach(x => x.classList.toggle("on", x.dataset.show === ui.show));
+    paintSide();
+  };
+  qsa("[data-by]", m).forEach(b => b.addEventListener("click", () => { ui.by = b.dataset.by; ui.open.clear(); paint(); }));
+  qsa("[data-show]", m).forEach(b => b.addEventListener("click", () => { ui.show = b.dataset.show; paint(); }));
+  let t; qs("#ce-q", m).addEventListener("input", e => { clearTimeout(t); t = setTimeout(() => { ui.q = e.target.value; paint(); }, 120); });
+  qs("#ce-clear", m).addEventListener("click", () => { chosen.clear(); paint(); });
+  form.elements.capacity.addEventListener("input", paintSide);
+  // Abre o primeiro grupo para ninguém ficar diante de uma lista fechada.
+  const first = [...devices].sort((a, b) => numSort(a.code, b.code)).find(free); if (first) ui.open.add(modelKey(first));
+  paint();
+
   qs("#cart-off", m)?.addEventListener("click", async () => {
-    if (!await confirmAction({ title: "Desativar carrinho?", message: "Ele sai da operação; o histórico fica guardado. O número pode ser reaproveitado depois.", confirmText: "Desativar", danger: true })) return;
+    if (!await confirmAction({ title: "Desativar carrinho?", message: "Ele sai da operação; os computadores ficam livres para outro carrinho e o histórico é guardado.", confirmText: "Desativar", danger: true })) return;
     const { error } = await supabase.from("equipment_carts").update({ is_active: false }).eq("id", Number(rec.id));
     if (error) return notify(errText(error), "error"); notify("Carrinho desativado.", "success"); m.close(); cartMapCache.at = 0; refreshView();
   });
   form.addEventListener("submit", async e => {
-    e.preventDefault(); const f = new FormData(form), b = qs('.sheet-foot [type="submit"]', m);
-    const a = analyse();
-    if (!a.codes.length) return notify("Informe os números dos equipamentos.", "warning");
-    if (a.numberTaken) return notify("Esse número de carrinho já está em uso.", "warning");
-    if (a.missing.length) return notify("Há números que não estão cadastrados.", "warning");
-    if (a.taken.length && !form.elements.move.checked) return notify("Marque a opção de tirar do outro carrinho, ou remova esses números.", "warning");
-    if (a.cap && a.codes.length > a.cap) return notify("Mais equipamentos do que vagas.", "warning");
-    const args = { p_cart_id: editing ? Number(rec.id) : null, p_number: Number(f.get("number")), p_name: clean(f.get("name")) || null, p_equipment_codes: a.codes, p_location_text: clean(f.get("location_text")) || null, p_capacity: f.get("capacity") ? Number(f.get("capacity")) : null, p_notes: clean(f.get("notes")) || null };
+    e.preventDefault();
+    const f = new FormData(form), b = qs("#ce-save", m);
+    const list = [...chosen].map(id => byId.get(id)).filter(Boolean);
+    if (!list.length) return notify("Escolha ao menos um computador.", "warning");
+    const number = Number(f.get("number"));
+    const taken = map.carts.find(c => Number(c.cart_number) === number && String(c.cart_id) !== myId);
+    if (taken) return notify(`O número ${number} já é do “${cartName(taken)}”. Use ${nextNumber}.`, "warning");
+    const moving = list.filter(otherCart);
+    if (moving.length && !await confirmAction({ title: `Mover ${moving.length} computador(es)?`, message: `Eles saem de outro carrinho: ${moving.slice(0, 10).map(d => `${d.code} (${cartName(otherCart(d))})`).join(", ")}${moving.length > 10 ? "…" : ""}.`, confirmText: "Mover para este" })) return;
+    const args = { p_cart_id: editing ? Number(rec.id) : null, p_number: number, p_name: clean(f.get("name")) || null, p_equipment_codes: list.map(d => d.code), p_location_text: clean(f.get("location_text")) || null, p_capacity: f.get("capacity") ? Number(f.get("capacity")) : null, p_notes: clean(qs('[name="notes"]', m).value) || null };
     setBusy(b, true, "Salvando…");
     try {
-      let res = await supabase.rpc("equipa_save_cart", { ...args, p_move: !!form.elements.move.checked });
-      // Banco sem a migração 1.0: usa a função antiga (sem mover entre carrinhos).
+      let res = await supabase.rpc("equipa_save_cart", { ...args, p_move: moving.length > 0 });
       if (res.error && /PGRST202|42883|could not find the function/i.test(`${res.error.code} ${res.error.message}`)) {
-        if (a.taken.length) throw new Error("Para mover equipamentos entre carrinhos, aplique a migração 1.0 no Supabase.");
+        if (moving.length) throw new Error("Para mover computadores entre carrinhos, aplique a migração 1.0 no Supabase.");
         res = await supabase.rpc("save_equipment_cart_v2", args);
       }
       if (res.error) throw res.error;
-      if (f.get("set_location") && args.p_location_text) {
-        const ids = a.codes.map(c => byCode.get(norm(c))?.id).filter(Boolean);
+      if (qs("#ce-setloc", m).checked && args.p_location_text) {
+        const ids = list.filter(d => norm(d.location_text) !== norm(args.p_location_text)).map(d => d.id);
         for (let i = 0; i < ids.length; i += 100) await supabase.from("equipments").update({ location_text: args.p_location_text }).in("id", ids.slice(i, i + 100));
       }
-      notify(editing ? "Carrinho atualizado." : res.data?.reused ? "Carrinho reativado com o mesmo número e QR." : "Carrinho criado.", "success");
+      notify(editing ? `Carrinho atualizado: ${list.length} computador(es).` : res.data?.reused ? "Carrinho reativado com o mesmo número e QR." : `Carrinho criado com ${list.length} computador(es).`, "success");
       m.close(); cartMapCache.at = 0; invalidateData(); if (state.view === "carts") refreshView();
     } catch (error) { notify(error.message && !error.code ? error.message : errText(error), "error"); }
     finally { setBusy(b, false); }

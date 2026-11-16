@@ -52,3 +52,8 @@ for (const f of ['inherit', 'specInputs', 'locationDatalist', 'hasSpecs']) asser
 assert(reg.includes('replaceExisting') && reg.includes('on_existing'), 'Cadastro sem a opção de substituir existentes');
 assert(css.includes('max-width: 2200px') && !/\.view \{[^}]*max-width: 1280px/.test(css), 'Layout deve ocupar telas 16:9');
 console.log('Interface 1.1: carrinho, herança, ajustes e 16:9 aprovados.');
+
+// Editor de carrinho: só computadores registrados (sem digitar números livres), por modelo/tipo, com quantidade.
+assert(!/<textarea name="codes"/.test(ctl), 'Carrinho não deve aceitar números digitados livremente');
+for (const f of ['data-qty-go', 'data-by="type"', 'data-show="all"', 'ce-sum', 'otherCart']) assert(ctl.includes(f), `Editor de carrinho sem ${f}`);
+console.log('Editor de carrinho aprovado.');
