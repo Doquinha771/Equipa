@@ -414,12 +414,36 @@ async function renderCarts(gen) {
     qs("#cr-list").innerHTML = (rows.length ? `<div class="cart-board2">${rows.map(card).join("")}</div>` : emptyState("Nenhum carrinho.", admin ? "Crie um carrinho e escolha os computadores que ficam nele." : "", "cart"))
       + (loose.length && !state.carts.q ? `<div class="callout">${icon("laptop", 18)}<span><b>${loose.length} computador(es) sem carrinho</b> — ${esc(groupDevices(loose).map(g => `${g.items.length}× ${g.model}`).join(" · "))}</span>${admin ? `<button class="btn btn-sm" type="button" id="cr-loose">Montar carrinho com eles</button>` : ""}</div>` : "");
     qsa("[data-open]").forEach(b => b.addEventListener("click", () => { state.carts.open = b.dataset.open; renderCarts(++viewGen); }));
+    qsa("[data-open]").forEach(b => b.addEventListener("contextmenu", e => {
+      e.preventDefault();
+      const c = map.carts.find(x => String(x.cart_id) === b.dataset.open); if (!c) return;
+      const ds = (c.equipment_codes || []).map(code => byCode.get(norm(code))).filter(Boolean), free = ds.filter(d => st(d) === "available");
+      openContextMenu(e.clientX, e.clientY, { title: cartName(c), items: [
+        { label: "Abrir carrinho", ic: "cart", action: () => { state.carts.open = c.cart_id; renderCarts(++viewGen); } },
+        { label: free.length ? `Retirar os ${free.length} guardados` : "Retirar (nenhum livre)", ic: "out", disabled: !free.length, action: () => openCounter(free, { step: "ticket" }) },
+        { label: `Etiquetas QR (${ds.length})`, ic: "qr", action: () => EquipaLabels.open(ds, `Etiquetas · ${cartName(c)}`) },
+        ...(admin ? [{ label: "Editar", ic: "edit", action: () => openCartForm({ id: c.cart_id, number: c.cart_number, name: c.cart_name, location_text: c.location_text, capacity: c.capacity, notes: c.notes, equipment_codes: c.equipment_codes || [] }) },
+          "-", { label: "Excluir carrinho", ic: "trash", danger: true, action: () => deleteCart(c) }] : [])
+      ] });
+    }));
     qs("#cr-loose")?.addEventListener("click", () => openCartForm({ equipment_codes: [] }));
   };
   let t; qs("#cr-q").addEventListener("input", e => { clearTimeout(t); t = setTimeout(() => { state.carts.q = e.target.value; paint(); }, 150); });
   paint();
 }
 
+/** Exclui o carrinho inteiro. Os computadores continuam no inventário, "sem carrinho". */
+async function deleteCart(c) {
+  const n = (c.equipment_codes || []).length;
+  if (!await confirmAction({ title: `Excluir ${cartName(c)}?`, message: `${n ? `Os ${n} computador(es) dele ficam “sem carrinho” e continuam no inventário. ` : ""}O histórico de retiradas é preservado.`, confirmText: "Excluir carrinho", danger: true })) return;
+  let { data, error } = await supabase.from("equipment_carts").delete().eq("id", Number(c.cart_id));
+  // Sem permissão o banco apaga 0 linhas sem erro; com registros ligados, dá erro. Nos dois casos, desativa.
+  if (error || !(data || []).length) ({ data, error } = await supabase.from("equipment_carts").update({ is_active: false }).eq("id", Number(c.cart_id)));
+  if (error) return notify(errText(error), "error");
+  if (!(data || []).length) return notify("O banco não permitiu excluir este carrinho. Confira se sua conta é de administrador.", "error");
+  notify(`${cartName(c)} excluído.`, "success");
+  state.carts.open = null; cartMapCache.at = 0; invalidateData(); if (state.view === "carts") renderCarts(++viewGen);
+}
 /** Página do carrinho: cada vaga mostra qual computador do inventário está nela. */
 async function renderCartDetail(gen, cartId) {
   const admin = isAdmin();
@@ -478,7 +502,7 @@ async function renderCartDetail(gen, cartId) {
     on("ticket", () => openWithdrawal(holder.get(String(list[0].id)).id));
     on("out", () => openCounter(free, { step: "ticket" }));
     on("out-all", () => openCounter(ds.filter(d => st(d) === "available"), { step: "ticket" }));
-    on("labels", () => EquipaRegister.downloadLabels(list, `Equipa-${cartName(cart)}`));
+    on("labels", () => EquipaLabels.open(list, `Etiquetas · ${cartName(cart)}`));
     on("remove", () => removeFromCart(list));
     on("move", () => moveToCart(list));
     on("clear", () => { sel.clear(); paintSlots(); paintPanel(); });
@@ -524,6 +548,21 @@ async function renderCartDetail(gen, cartId) {
     // Clique marca/desmarca e soma à seleção (com 1 marcado, o painel mostra a ficha dele).
     if (sel.has(id)) sel.delete(id); else sel.add(id);
     paintSlots(); paintPanel();
+  });
+  slotsHost.addEventListener("contextmenu", e => {
+    const b = e.target.closest("[data-id]"); if (!b) return;
+    e.preventDefault();
+    if (!sel.has(b.dataset.id)) { sel.clear(); sel.add(b.dataset.id); }
+    paintSlots(); paintPanel();
+    const list = [...sel].map(id => byId.get(id)).filter(Boolean).sort((a, c) => numSort(a.code, c.code)), free = list.filter(d => st(d) === "available");
+    openContextMenu(e.clientX, e.clientY, { title: list.length === 1 ? `Nº ${list[0].code}` : `${list.length} selecionados`, items: [
+      ...(list.length === 1 ? [{ label: "Abrir ficha", ic: "laptop", action: () => openDevice(list[0].id) }] : []),
+      { label: free.length ? `Retirar ${free.length}` : "Retirar (nenhum livre)", ic: "out", disabled: !free.length, action: () => openCounter(free, { step: "ticket" }) },
+      { label: `Etiquetas QR (${list.length})`, ic: "qr", action: () => EquipaLabels.open(list) },
+      ...(admin ? ["-", { label: "Mover para outro carrinho", ic: "cart", action: () => moveToCart(list) },
+        { label: `Tirar do carrinho (${list.length})`, ic: "x", action: () => removeFromCart(list) },
+        { label: `Excluir do inventário (${list.length})`, ic: "trash", danger: true, action: () => deleteDevices(list, () => { cartMapCache.at = 0; renderCarts(++viewGen); }) }] : [])
+    ] });
   });
   enableMarquee(slotsHost, { onSelect: (els, { additive }) => { const ids = els.map(el => el.dataset.id); if (!additive) sel.clear(); ids.forEach(id => sel.add(id)); paintSlots(); paintPanel(); } });
   clearOnOutsideClick({ keep: "#cd-slots [data-id], #cd-panel", alive: () => slotsHost.isConnected, hasSelection: () => sel.size > 0, clear: () => { sel.clear(); paintSlots(); paintPanel(); } });

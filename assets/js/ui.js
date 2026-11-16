@@ -346,3 +346,27 @@ function clearOnOutsideClick({ keep, alive, hasSelection, clear }) {
   };
   document.addEventListener("click", handler);
 }
+
+/* ---------- Menu do botão direito ---------- */
+/** items: [{ label, ic, danger, disabled, action } | "-"]. Fecha com clique fora, Esc, rolagem. */
+function openContextMenu(x, y, { title = "", items = [] } = {}) {
+  qs(".ctx")?.remove();
+  const menu = document.createElement("div");
+  menu.className = "ctx"; menu.setAttribute("role", "menu");
+  menu.innerHTML = (title ? `<div class="ctx-head">${esc(title)}</div>` : "") + items.map((it, i) => it === "-" ? "<hr>" : `<button type="button" role="menuitem" data-i="${i}" class="${it.danger ? "danger" : ""}" ${it.disabled ? "disabled" : ""}>${icon(it.ic || "chevron", 17)}<span>${esc(it.label)}</span></button>`).join("");
+  document.body.append(menu);
+  const r = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(x, innerWidth - r.width - 8))}px`;
+  menu.style.top = `${Math.max(8, y + r.height > innerHeight - 8 ? y - r.height : y)}px`;
+  const ctrl = new AbortController();
+  const close = () => { ctrl.abort(); menu.remove(); };
+  qsa("[data-i]", menu).forEach(b => b.addEventListener("click", () => { const it = items[Number(b.dataset.i)]; close(); it?.action?.(); }));
+  setTimeout(() => {
+    document.addEventListener("pointerdown", e => { if (!menu.contains(e.target)) close(); }, { signal: ctrl.signal, capture: true });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") { e.preventDefault(); close(); } }, { signal: ctrl.signal });
+    window.addEventListener("scroll", close, { signal: ctrl.signal, capture: true, once: true });
+    window.addEventListener("resize", close, { signal: ctrl.signal, once: true });
+  }, 0);
+  qs("button:not(:disabled)", menu)?.focus({ preventScroll: true });
+  return close;
+}

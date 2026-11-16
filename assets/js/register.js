@@ -381,58 +381,9 @@ const EquipaRegister = (() => {
     });
   }
 
-  /* ----- Etiquetas QR em PDF ----- */
-  async function qrDataURL(url) {
-    await ensureQRCodeLib();
-    const el = document.createElement("div"); el.style.cssText = "position:fixed;left:-10000px;top:0"; document.body.append(el);
-    try {
-      new window.QRCode(el, { text: url, width: 160, height: 160, correctLevel: window.QRCode.CorrectLevel.M });
-      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-      const c = qs("canvas", el), img = qs("img", el);
-      if (c) return c.toDataURL("image/png"); if (img?.src) return img.src;
-      throw new Error("Não foi possível gerar o QR Code.");
-    } finally { el.remove(); }
-  }
-  async function makeLabels(items) {
-    await ensureJsPDF(); await ensureQRCodeLib();
-    const doc = new window.jspdf.jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
-    const W = 63, H = 42, X = 10, Y = 12, cols = 3, per = 18;
-    const sorted = [...items].sort((a, b) => numSort(a.code, b.code));
-    for (let i = 0; i < sorted.length; i++) {
-      if (i && i % per === 0) doc.addPage();
-      const p = i % per, x = X + (p % cols) * W, y = Y + Math.floor(p / cols) * H, it = sorted[i];
-      doc.setDrawColor(205, 210, 218); doc.roundedRect(x, y, W - 2, H - 2, 2, 2);
-      doc.addImage(await qrDataURL(qrUrl(it.qr_token)), "PNG", x + 2.5, y + 4.5, 30, 30);
-      doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); doc.setTextColor(110); doc.text("EQUIPA", x + 35, y + 9);
-      doc.setFont("helvetica", "bold"); doc.setTextColor(20);
-      const code = clean(it.code).slice(0, 14); doc.setFontSize(code.length <= 4 ? 26 : code.length <= 8 ? 16 : 11); doc.text(code, x + 35, y + 21, { maxWidth: 24 });
-      if (it.model) { doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); doc.setTextColor(90); doc.text(clean(it.model).slice(0, 44), x + 35, y + 28, { maxWidth: 24 }); }
-      if (i % 12 === 0) await sleep(0);
-    }
-    return doc;
-  }
-  async function downloadLabels(items, filename = "Equipa-etiquetas") {
-    const list = (items || []).filter(x => x.qr_token);
-    if (!list.length) return notify("Nenhum equipamento com QR para gerar etiquetas.", "warning");
-    if (list.length > 2000) return notify("Gere até 2.000 etiquetas por PDF (filtre por local).", "warning");
-    notify(`Gerando ${list.length} etiqueta(s)…`, "info");
-    try { (await makeLabels(list)).save(`${safeFileName(filename)}.pdf`); notify(`${list.length} etiqueta(s) em PDF.`, "success"); }
-    catch (error) { notify(registerError(error), "error"); }
-  }
-  async function chooseLabels() {
-    if (!isAdmin()) return;
-    const m = openSheet({ size: "md", title: "Etiquetas QR", subtitle: "Escolha por modelo ou local. Cada etiqueta tem o número grande e o QR.", body: loadingState() });
-    let rows; try { rows = await loadDevices(); } catch (error) { setSheet(m, { body: emptyState("Não foi possível carregar.", errText(error), "warn") }); return; }
-    if (!m.isConnected) return;
-    const groups = groupDevices(rows);
-    const locs = [...new Set(rows.map(r => r.location_text).filter(Boolean))].sort(numSort);
-    setSheet(m, { body: `<div class="form"><div class="grid-2"><label class="field"><span>Modelo</span><select id="lb-model"><option value="">Todos os modelos</option>${groups.map(g => `<option>${esc(g.model)}</option>`).join("")}</select></label><label class="field"><span>Local</span><select id="lb-loc"><option value="">Todos os locais</option>${locs.map(l => `<option>${esc(l)}</option>`).join("")}</select></label></div><div class="preview" id="lb-prev"></div></div>`,
-      foot: `<button class="btn" type="button" data-close>Cancelar</button><button class="btn btn-primary" type="button" id="lb-go">Baixar PDF</button>` });
-    const pick = () => rows.filter(r => (!qs("#lb-model", m).value || modelKey(r) === qs("#lb-model", m).value) && (!qs("#lb-loc", m).value || r.location_text === qs("#lb-loc", m).value));
-    const paint = () => { const p = pick(); qs("#lb-prev", m).innerHTML = `<div class="preview-head"><b>${p.length} etiqueta(s)</b><span>${Math.ceil(p.length / 18)} folha(s) A4</span></div>`; qs("#lb-go", m).disabled = !p.length; };
-    ["#lb-model", "#lb-loc"].forEach(s => qs(s, m).addEventListener("change", paint)); paint();
-    qs("#lb-go", m).addEventListener("click", async () => { const b = qs("#lb-go", m); setBusy(b, true, "Gerando…"); await downloadLabels(pick(), `Equipa-etiquetas-${qs("#lb-model", m).value || qs("#lb-loc", m).value || "inventario"}`); setBusy(b, false); });
-  }
+  /* ----- Etiquetas: agora no gerador com prévia (labels.js) ----- */
+  const downloadLabels = list => EquipaLabels.open(list, "Etiquetas QR");
+  const chooseLabels = () => EquipaLabels.open(null, "Etiquetas QR");
 
   return { open, saveOne, downloadLabels, chooseLabels, readSpreadsheet };
 })();

@@ -821,3 +821,27 @@ body.marqueeing, body.marqueeing * { user-select: none !important; cursor: cross
 .t-item-x.sel { background: var(--late-soft); border-color: var(--late); }
 @media (max-width: 1100px) { .cd-grid { grid-template-columns: 1fr; } .cd-panel { position: static; } }
 @media (max-width: 860px) { .board-sum-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); } .cart-board2 { grid-template-columns: 1fr; } .cd-slots { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); padding: 4px 10px 12px; } }
+
+/* ===================== Gerador de etiquetas ===================== */
+.labels-sheet .sheet-body { padding-top: 0; }
+.lb-grid { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 18px; align-items: start; }
+.lb-pick { display: grid; gap: 10px; min-width: 0; }
+.lb-pick .slots { max-height: 52vh; overflow: auto; padding: 2px; }
+.lb-side { position: sticky; top: 0; display: grid; gap: 12px; }
+.lb-count { font-size: 14px; color: var(--ink-2); } .lb-count b { font-family: var(--mono); color: var(--ink); }
+.lb-preview-wrap { background: var(--surface-3); border-radius: var(--r); padding: 10px; overflow: hidden; }
+/* A prévia desenha a folha A4 real (194 mm) e a reduz para caber no painel. */
+.lb-preview { width: 194mm; transform: scale(.52); transform-origin: top left; margin-bottom: calc(-281mm * .48); background: #fff; padding: 0; box-shadow: var(--shadow-1); min-height: 281mm; }
+.lb-preview .hint { transform: none; }
+@media (min-width: 1500px) { .lb-grid { grid-template-columns: minmax(0, 1fr) 520px; } .lb-preview { transform: scale(.66); margin-bottom: calc(-281mm * .34); } }
+@media (max-width: 1100px) { .lb-grid { grid-template-columns: 1fr; } .lb-side { position: static; } }
+@media (max-width: 860px) { .lb-preview { transform: scale(.42); margin-bottom: calc(-281mm * .58); } }
+
+/* Menu do botão direito */
+.ctx { position: fixed; z-index: 150; min-width: 230px; max-width: 320px; padding: 6px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow-2); animation: pop .12s var(--ease); }
+.ctx-head { padding: 6px 10px 8px; font-size: 12px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.ctx button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 7px; text-align: left; font-weight: 600; font-size: 14px; color: var(--ink); }
+.ctx button:hover:not(:disabled), .ctx button:focus-visible { background: var(--surface-2); outline: none; }
+.ctx button.danger { color: var(--late); }
+.ctx button.danger:hover { background: var(--late-soft); }
+.ctx hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }

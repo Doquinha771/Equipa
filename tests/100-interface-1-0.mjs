@@ -6,7 +6,7 @@ const html = read('index.html'), app = read('assets/js/app.js'), ui = read('asse
 const reg = read('assets/js/register.js'), cam = read('assets/js/camera.js'), ctl = read('assets/js/control.js'), css = read('assets/css/equipa.css');
 
 // Ordem de carregamento: base → módulos → app (que inicia o boot).
-const order = ['config', 'boot-guard', 'supabase', 'ui', 'legal', 'settings', 'register', 'camera', 'control', 'app'].map(n => html.indexOf(`assets/js/${n}.js`));
+const order = ['config', 'boot-guard', 'supabase', 'ui', 'legal', 'settings', 'register', 'labels', 'camera', 'control', 'app'].map(n => html.indexOf(`assets/js/${n}.js`));
 assert(order.every(i => i > 0) && order.every((v, i) => !i || v > order[i - 1]), 'Scripts fora de ordem no index.html');
 assert(!existsSync(new URL('../assets/js/inventory-021.js', import.meta.url)), 'Módulo antigo de cadastro ainda presente');
 
@@ -63,3 +63,10 @@ assert.match(ui, /function enableMarquee/);
 for (const f of ['renderCartDetail', 'removeFromCart', 'moveToCart', 'enableMarquee(slotsHost', 'enableMarquee(groupsHost']) assert(ctl.includes(f), `Carrinhos sem ${f}`);
 assert(app.includes('enableMarquee(qs("#dev-results")'), 'Equipamentos sem seleção por arrasto');
 console.log('Arrasto e página do carrinho aprovados.');
+
+// Etiquetas: impressão em página própria (sem tela branca) e menu do botão direito.
+const lbl = read('assets/js/labels.js');
+assert(lbl.includes('iframe') && lbl.includes('contentWindow.print') && !app.includes('window.print()'), 'Impressão deve usar página própria, não window.print do app');
+for (const f of ['openContextMenu']) assert(ui.includes(`function ${f}`), `ui sem ${f}`);
+assert(app.includes('deleteDevices') && ctl.includes('deleteCart') && ctl.includes('"contextmenu"'), 'Botão direito sem excluir');
+console.log('Etiquetas e botão direito aprovados.');

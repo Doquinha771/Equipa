@@ -570,6 +570,16 @@ async function renderDevices(gen) {
   const resultsHost = qs("#dev-results");
   clearOnOutsideClick({ keep: "[data-dev], #selbar, #dev-select, [data-group-all], .group-toggle", alive: () => resultsHost.isConnected, hasSelection: () => s.selecting && s.selected.size > 0,
     clear: () => { s.selected.clear(); s.selecting = false; const b = qs("#dev-select"); if (b) { b.classList.remove("btn-on"); b.querySelector("span").textContent = "Selecionar"; } paintDevices(); } });
+  // Botão direito: como numa pasta — se o item não estava marcado, marca só ele; depois abre o menu.
+  resultsHost.addEventListener("contextmenu", e => {
+    const el = e.target.closest("[data-dev]"); if (!el) return;
+    e.preventDefault();
+    const byId = new Map(devicesView.rows.map(d => [String(d.id), d])), d = byId.get(el.dataset.dev); if (!d) return;
+    if (!s.selected.has(d.id)) { s.selected.clear(); s.selected.set(d.id, d); }
+    if (!s.selecting) { s.selecting = true; const b = qs("#dev-select"); if (b) { b.classList.add("btn-on"); b.querySelector("span").textContent = "Selecionando"; } }
+    paintDevices();
+    deviceContextMenu(e, [...s.selected.values()]);
+  });
   // Arrastar o mouse sobre os cartões entra no modo de seleção e marca vários.
   enableMarquee(qs("#dev-results"), { item: "[data-dev]", onSelect: (els, { additive }) => {
     const byId = new Map(devicesView.rows.map(d => [String(d.id), d]));
@@ -858,6 +868,34 @@ async function openBulkEdit(list) {
     finally { setBusy(b, false); }
   });
 }
+/** Exclui vários do inventário. Sem histórico: apaga. Com histórico: sai do inventário ativo e o histórico fica. */
+async function deleteDevices(list, after = () => refreshView()) {
+  if (!isAdmin() || !list.length) return;
+  const busy = list.filter(d => ["in_use", "maintenance"].includes(d.status));
+  const ok = await confirmAction({ title: `Excluir ${list.length} equipamento${list.length === 1 ? "" : "s"}?`,
+    message: `Nº ${list.slice(0, 15).map(d => d.code).join(", ")}${list.length > 15 ? "…" : ""}. Os que nunca foram usados são apagados; os que têm histórico saem do inventário e o histórico fica guardado. ${busy.length ? `${busy.length} estão emprestados ou em manutenção e serão pulados.` : ""}`,
+    confirmText: `Excluir ${list.length - busy.length}`, danger: true });
+  if (!ok) return;
+  let deleted = 0, retired = 0, failed = 0;
+  for (const d of list.filter(x => !busy.includes(x))) {
+    const { data, error } = await supabase.rpc("remove_equipment", { p_equipment_id: d.id });
+    if (error) failed++; else if (data?.mode === "deleted") deleted++; else retired++;
+  }
+  notify([deleted && `${deleted} apagado(s)`, retired && `${retired} fora do inventário (histórico mantido)`, (failed + busy.length) && `${failed + busy.length} não excluído(s)`].filter(Boolean).join(" · "), failed ? "warning" : "success");
+  invalidateData(); cartMapCache.at = 0; after();
+}
+/** Menu do botão direito para os equipamentos marcados (tela Equipamentos). */
+function deviceContextMenu(e, list) {
+  const free = list.filter(d => d.status === "available"), admin = isAdmin();
+  openContextMenu(e.clientX, e.clientY, { title: list.length === 1 ? `Nº ${list[0].code}` : `${list.length} selecionados`, items: [
+    ...(list.length === 1 ? [{ label: "Abrir ficha", ic: "laptop", action: () => openDevice(list[0].id) }] : []),
+    { label: free.length ? `Retirar ${free.length}` : "Retirar (nenhum livre)", ic: "out", disabled: !free.length, action: () => openCounter(free, { step: "ticket" }) },
+    ...(admin ? [{ label: list.length === 1 ? "Editar" : `Editar ${list.length} juntos`, ic: "edit", action: () => list.length === 1 ? openDevice(list[0].id) : openBulkEdit(list) },
+      { label: "Colocar num carrinho", ic: "cart", action: () => openCartForm({ equipment_codes: list.map(d => d.code) }) }] : []),
+    { label: `Etiquetas QR (${list.length})`, ic: "qr", action: () => EquipaLabels.open(list) },
+    ...(admin ? ["-", { label: `Excluir ${list.length === 1 ? "do inventário" : `${list.length} do inventário`}`, ic: "trash", danger: true, action: () => deleteDevices(list, () => { state.devices.selected.clear(); renderDevices(viewGen); }) }] : [])
+  ] });
+}
 async function deleteDevice(e) {
   if (!isAdmin()) return;
   const ok = await confirmAction({ title: `Apagar Nº ${e.code}?`, message: "Se nunca foi usado, o cadastro é excluído. Se já tem histórico, ele sai do inventário e o histórico fica guardado. Retiradas e manutenções abertas precisam ser encerradas antes.", confirmText: "Apagar", danger: true });
@@ -880,11 +918,11 @@ function openMaintenanceForm(e, parent) {
 }
 async function openQr(token, title, subtitle = "") {
   try { await ensureQRCodeLib(); } catch (error) { return notify(error.message, "error"); }
-  const m = openSheet({ size: "sm", className: "printable", title: esc(title), subtitle: esc(subtitle), body: `<div class="qr-box"><div id="qr-code"></div><small>${esc(qrUrl(token))}</small></div>`,
+  const m = openSheet({ size: "sm", title: esc(title), subtitle: esc(subtitle), body: `<div class="qr-box"><div id="qr-code"></div><small>${esc(qrUrl(token))}</small></div>`,
     foot: `<button class="btn" type="button" id="qr-copy">Copiar link</button><button class="btn btn-primary" type="button" id="qr-print">Imprimir</button>` });
   new window.QRCode(qs("#qr-code", m), { text: qrUrl(token), width: 220, height: 220, correctLevel: window.QRCode.CorrectLevel.M });
   qs("#qr-copy", m).addEventListener("click", async () => { try { await navigator.clipboard.writeText(qrUrl(token)); notify("Link copiado.", "success"); } catch { notify("Não foi possível copiar.", "warning"); } });
-  qs("#qr-print", m).addEventListener("click", () => window.print());
+  qs("#qr-print", m).addEventListener("click", () => EquipaLabels.printOne({ code: String(title).replace(/^Nº\s*/, ""), model: subtitle, qr_token: token }));
 }
 
 /* ===================== Manutenção ===================== */
