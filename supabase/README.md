@@ -38,6 +38,54 @@ leitura (exemplos abaixo) em vez de confiar só nos arquivos antigos.
 No repositório o arquivo traz a parte de carrinhos e a parte de campos/ajustes; em
 produção ela foi aplicada em duas execuções no SQL Editor.
 
+## Correção 1.3 (aplicada em 16/11/2026)
+
+`migrations/20261116020000_equipa_1_3_reports_group_by_fix.sql` — “Relatório
+indisponível” (42803). Em `private.reports_internal` o ranking “Mais usados” agrupava
+só por `e.id`; com `equipments` sendo visão, o PostgreSQL exige `e.code` no
+`GROUP BY`. Corrigido para `group by e.id, e.code`. Validado chamando
+`equipa_admin_report_dashboard` e `equipa_admin_reports` como administrador.
+
+## Migration 1.4 — excluir de vez (aplicada em 16/11/2026)
+
+`migrations/20261116030000_equipa_1_4_purge_equipment.sql` — nova RPC
+`equipa_purge_equipment(p_ids uuid[])` (só administração, até 500 por vez), usada
+por “Excluir” em Equipamentos (botão direito ou seleção):
+
+- **Apaga de vez** quem nunca teve retirada, manutenção nem uso mensal (os registros
+  de cadastro/desativação em `equipment_history` vão junto; vagas de carrinho saem
+  pela FK em cascata).
+- **Só tira do catálogo** quem tem histórico de uso (as retiradas antigas continuam
+  válidas).
+- **Não mexe** em equipamento emprestado ou com manutenção aberta, e informa.
+- Registra cada exclusão em `audit_events` (quem, quais números).
+- As travas `equipments_prevent_delete` e `audit_equipments_changes` continuam
+  recusando qualquer DELETE feito fora desta função; a liberação é uma configuração
+  local da transação (`equipa.allow_purge`).
+
+Sem a migration aplicada, o site cai no comportamento antigo (tirar do catálogo).
+
+Validada em 16/11/2026 no banco real **dentro de uma transação desfeita** (erro
+proposital no fim): apagou 1 sem histórico, só arquivou 1 com histórico, e um DELETE
+direto continuou bloqueado. Depois disso a função não existia e as 47 unidades
+continuavam lá. Aplicada em seguida e conferida: função criada, executável por
+`authenticated` e não por `anon`, travas e auditoria atualizadas, 47 unidades intactas.
+
+Para conferir:
+
+```sql
+select to_regprocedure('public.equipa_purge_equipment(uuid[])') is not null as purge_ok;
+```
+
+## Pontos de atenção
+
+- Alterações em equipamentos (cadastro, edição, desativação, reativação) são
+  registradas em `public.equipment_history` (ações 1–4) pela função
+  `private.audit_row_change`, e não em `audit_events`. A tela Auditoria mostra
+  `audit_events`; o histórico de cada equipamento fica na ficha.
+- Equipamentos fora do catálogo voltam por: Equipamentos → ⋯ → “Ver fora do
+  catálogo” → editar → marcar “Ativo no catálogo”.
+
 ## Como validar (somente leitura)
 
 ```sql

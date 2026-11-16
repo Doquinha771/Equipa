@@ -350,19 +350,28 @@ async function openBulkEdit(list) {
   });
 }
 /** Exclui vários do inventário. Sem histórico: apaga. Com histórico: sai do inventário ativo e o histórico fica. */
+/**
+ * Exclui vários de uma vez (RPC equipa_purge_equipment): quem nunca foi usado é
+ * APAGADO de vez; quem tem histórico de retirada/manutenção só sai do catálogo;
+ * emprestado ou em manutenção aberta não muda. Tudo validado no servidor.
+ */
 async function deleteDevices(list, after = () => refreshView()) {
   if (!isAdmin() || !list.length) return;
   const busy = list.filter(d => ["in_use", "maintenance"].includes(d.status));
   const ok = await confirmAction({ title: `Excluir ${list.length} equipamento${list.length === 1 ? "" : "s"}?`,
-    message: `Nº ${list.slice(0, 15).map(d => d.code).join(", ")}${list.length > 15 ? "…" : ""}. Os que nunca foram usados são apagados; os que têm histórico saem do inventário e o histórico fica guardado. ${busy.length ? `${busy.length} estão emprestados ou em manutenção e serão pulados.` : ""}`,
+    message: `Nº ${list.slice(0, 15).map(d => d.code).join(", ")}${list.length > 15 ? "…" : ""}. Os que nunca foram retirados nem foram para manutenção são APAGADOS DE VEZ — não dá para desfazer. Os que têm histórico saem do catálogo, para as retiradas antigas continuarem válidas.${busy.length ? ` ${busy.length} estão emprestados ou em manutenção e não mudam.` : ""}`,
     confirmText: `Excluir ${list.length - busy.length}`, danger: true });
   if (!ok) return;
-  let deleted = 0, retired = 0, failed = 0;
-  for (const d of list.filter(x => !busy.includes(x))) {
-    const { data, error } = await supabase.rpc("remove_equipment", { p_equipment_id: d.id });
-    if (error) failed++; else if (data?.mode === "deleted") deleted++; else retired++;
-  }
-  notify([deleted && `${deleted} apagado(s)`, retired && `${retired} fora do inventário (histórico mantido)`, (failed + busy.length) && `${failed + busy.length} não excluído(s)`].filter(Boolean).join(" · "), failed ? "warning" : "success");
+  const ids = list.filter(x => !busy.includes(x)).map(d => d.id);
+  if (!ids.length) return notify("Nada para excluir: todos estão emprestados ou em manutenção.", "warning");
+  let deleted = 0, archived = 0, blocked = busy.length, failed = 0;
+  let res = await supabase.rpc("equipa_purge_equipment", { p_ids: ids.slice(0, 500) });
+  if (res.error && /PGRST202|42883|could not find the function/i.test(`${res.error.code} ${res.error.message}`)) {
+    // Banco sem a migração 1.4: comportamento anterior (só sai do catálogo).
+    for (const id of ids) { const r = await supabase.rpc("remove_equipment", { p_equipment_id: id }); if (r.error) failed++; else archived++; }
+  } else if (res.error) return notify(errText(res.error), "error");
+  else { deleted = res.data?.deleted || 0; archived = res.data?.archived || 0; blocked += (res.data?.blocked || []).length; }
+  notify([deleted && `${deleted} apagado(s) de vez`, archived && `${archived} fora do catálogo (tinham histórico)`, (blocked + failed) && `${blocked + failed} não mudou(aram)`].filter(Boolean).join(" · ") || "Nada mudou.", failed ? "warning" : "success");
   invalidateData(); cartMapCache.at = 0; after();
 }
 /** Menu do botão direito para os equipamentos marcados (tela Equipamentos). */
@@ -379,12 +388,7 @@ function deviceContextMenu(e, list) {
 }
 async function deleteDevice(e) {
   if (!isAdmin()) return;
-  const ok = await confirmAction({ title: `Apagar Nº ${e.code}?`, message: "Se nunca foi usado, o cadastro é excluído. Se já tem histórico, ele sai do inventário e o histórico fica guardado. Retiradas e manutenções abertas precisam ser encerradas antes.", confirmText: "Apagar", danger: true });
-  if (!ok) return;
-  const { data, error } = await supabase.rpc("remove_equipment", { p_equipment_id: e.id });
-  if (error) return notify(errText(error), "error");
-  notify(data?.mode === "deleted" ? `Nº ${e.code} excluído.` : `Nº ${e.code} saiu do inventário; histórico preservado.`, "success");
-  invalidateData(); refreshView();
+  return deleteDevices([e]);
 }
 function openMaintenanceForm(e, parent) {
   const m = openSheet({ size: "sm", title: `Manutenção · Nº ${esc(e.code)}`, subtitle: "O equipamento fica indisponível até a conclusão.",

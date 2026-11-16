@@ -94,8 +94,11 @@ pela câmera, roda no navegador; nenhuma imagem vai para o servidor).
 
 Novas migrations devem ser **aditivas** e aplicadas manualmente (SQL Editor ou
 `supabase db push`) depois de revisadas — o GitHub Pages não executa nada no banco.
-A mais recente, `20261116010000_equipa_1_0_carts_models_settings.sql`, já está
-aplicada em produção (carrinhos, campos personalizados, fichas de modelo, ajustes).
+Já aplicadas em produção: `20261116010000_equipa_1_0_carts_models_settings.sql`
+(carrinhos, campos personalizados, fichas de modelo, ajustes) e
+`20261116020000_equipa_1_3_reports_group_by_fix.sql` (relatórios) e
+`20261116030000_equipa_1_4_purge_equipment.sql` (“Excluir” apaga de vez equipamentos
+sem histórico de uso; os com histórico só saem do catálogo).
 Detalhes e consultas de verificação em `supabase/README.md`.
 
 ## Testes
