@@ -274,3 +274,75 @@ function smartFilter(rows, query, fields) {
   if (!q) return rows;
   return rows.map(r => ({ r, s: smartScore(fields(r), q) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).map(x => x.r);
 }
+
+/* ---------- Seleção por arrasto (como no explorador de arquivos) ---------- */
+/**
+ * Arrastar o mouse desenha um retângulo; os itens tocados são entregues a
+ * onSelect(itens, { additive }). Um clique simples continua funcionando como antes.
+ * Só para mouse: no toque, a rolagem e o toque nos itens seguem normais.
+ */
+function enableMarquee(host, { item = "[data-id]", onSelect, enabled = () => true } = {}) {
+  if (!host || host.dataset.marquee) return;
+  host.dataset.marquee = "1";
+  host.addEventListener("pointerdown", e => {
+    if (e.pointerType !== "mouse" || e.button !== 0 || !enabled()) return;
+    if (e.target.closest("input,select,textarea,a,label,[data-no-marquee],.group-actions,.group-toggle")) return;
+    const sx = e.clientX, sy = e.clientY;
+    const scroller = host.closest(".sheet-body") || null;
+    let box = null, hits = [], moved = false, lastEv = e, timer = 0;
+    const items = () => qsa(item, host).filter(el => !el.disabled);
+    let startScroll = scroller ? scroller.scrollTop : window.scrollY;
+    const update = ev => {
+      const cur = scroller ? scroller.scrollTop : window.scrollY, dy0 = cur - startScroll;
+      const y0 = sy - dy0, x = Math.min(sx, ev.clientX), y = Math.min(y0, ev.clientY), w = Math.abs(ev.clientX - sx), h = Math.abs(ev.clientY - y0);
+      Object.assign(box.style, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` });
+      hits = items().filter(el => { const r = el.getBoundingClientRect(); return r.right > x && r.left < x + w && r.bottom > y && r.top < y + h; });
+      items().forEach(el => el.classList.toggle("marquee-hit", hits.includes(el)));
+    };
+    // Rola sozinho quando o mouse encosta na borda (listas longas).
+    const autoscroll = () => {
+      const view = scroller ? scroller.getBoundingClientRect() : { top: 0, bottom: innerHeight };
+      const step = lastEv.clientY > view.bottom - 36 ? 14 : lastEv.clientY < view.top + 36 ? -14 : 0;
+      if (step) { if (scroller) scroller.scrollTop += step; else window.scrollBy(0, step); update(lastEv); }
+      timer = requestAnimationFrame(autoscroll);
+    };
+    const move = ev => {
+      lastEv = ev;
+      if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return;
+      if (!moved) { moved = true; box = document.createElement("div"); box.className = "marquee"; document.body.append(box); document.body.classList.add("marqueeing"); timer = requestAnimationFrame(autoscroll); }
+      ev.preventDefault(); update(ev);
+    };
+    const up = ev => {
+      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
+      cancelAnimationFrame(timer);
+      if (!moved) return;
+      box.remove(); document.body.classList.remove("marqueeing");
+      items().forEach(el => el.classList.remove("marquee-hit"));
+      // O clique que vem logo após soltar não deve desfazer a seleção.
+      const stop = c => { c.stopPropagation(); c.preventDefault(); };
+      window.addEventListener("click", stop, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener("click", stop, { capture: true }), 50);
+      if (hits.length) onSelect?.(hits, { additive: ev.ctrlKey || ev.metaKey || ev.shiftKey });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  });
+}
+/** Regra comum: se todos os tocados já estavam marcados, desmarca; senão, marca todos. */
+function toggleMany(set, ids) { const allOn = ids.every(id => set.has(id)); ids.forEach(id => allOn ? set.delete(id) : set.add(id)); return !allOn; }
+/**
+ * Clique fora desmarca (como numa pasta do computador). `keep` lista onde o clique
+ * NÃO deve limpar (os próprios itens e os botões que agem sobre a seleção).
+ * Para sozinho quando `alive()` ficar falso (a tela foi trocada).
+ */
+function clearOnOutsideClick({ keep, alive, hasSelection, clear }) {
+  const handler = e => {
+    if (!alive()) return document.removeEventListener("click", handler);
+    if (!hasSelection()) return;
+    // O item clicado pode ter sido redesenhado pelo próprio clique: não é "fora".
+    if (!e.target.isConnected) return;
+    if (e.target.closest(`${keep}, .overlay, .toast, .marquee`)) return;
+    clear();
+  };
+  document.addEventListener("click", handler);
+}

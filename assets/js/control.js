@@ -235,6 +235,7 @@ async function openCounter(pre = [], { step = "pick" } = {}) {
     qsa("[data-by]", m).forEach(b => b.classList.toggle("on", b.dataset.by === ui.by));
   };
   qsa("[data-by]", m).forEach(b => b.addEventListener("click", () => { ui.by = b.dataset.by; paintGroups(); }));
+  enableMarquee(groupsHost, { onSelect: els => { const byIdF = new Map(free.map(d => [String(d.id), d])); const ids = els.map(el => el.dataset.id); const allIn = ids.every(id => basket.has(id)); ids.forEach(id => { const d = byIdF.get(id); if (d) add(d, !allIn); }); paintGroups(); paintBasket(); } });
   let t; qs("#ct-q", m).addEventListener("input", e => { clearTimeout(t); t = setTimeout(() => { ui.q = e.target.value; paintGroups(); }, 120); });
   qs("#ct-cam", m).addEventListener("click", () => EquipaCamera.open({ mode: "checkout", onPick: d => { if (d.status !== "available") return { ok: false, text: `Nº ${d.code} está ${statusLabel(d.status).toLowerCase()}` }; if (basket.has(String(d.id))) return { ok: true, text: `Nº ${d.code} já está na comanda` }; if (!add(d)) return { ok: false, text: "Comanda cheia" }; paintBasket(); paintGroups(); return { ok: true, text: `Nº ${d.code} adicionado` }; }, doneLabel: "Voltar à comanda" }));
   qs("#ct-to-ticket", m).addEventListener("click", () => setStep("ticket"));
@@ -374,41 +375,165 @@ async function openWithdrawal(id, { receiveAll = false } = {}) {
   paint();
 }
 
-/* ---------- Carrinhos (quadro com vagas) ---------- */
+/* ---------- Carrinhos ---------- */
+/** Situação de cada computador para os carrinhos (com quem está, atrasado ou não). */
+async function cartContext(force = false) {
+  const [map, devices] = await Promise.all([loadCartMap(force), loadDevices({ force })]);
+  const holder = new Map();
+  try { (await loadOpenWithdrawals()).forEach(w => w.pending.forEach(i => holder.set(String(i.equipment_id), w))); } catch {}
+  const byCode = new Map(devices.map(d => [norm(d.code), d]));
+  const st = d => !d ? "unavailable" : d.status === "in_use" ? (holder.get(String(d.id))?.overdue ? "overdue" : "in_use") : d.status;
+  return { map, devices, byCode, holder, st };
+}
 async function renderCarts(gen) {
+  if (state.carts.open) return renderCartDetail(gen, state.carts.open);
   const admin = isAdmin();
-  qs("#view").innerHTML = `<div class="toolbar"><label class="search">${icon("search", 18)}<input id="cr-q" type="search" value="${esc(state.carts.q)}" placeholder="Carrinho, local ou número" autocomplete="off"></label><div class="toolbar-end">${state.profile?.role !== "student" ? `<button class="btn" id="cr-sheet" type="button">${icon("sheet", 18)}<span>Planilha</span></button>` : ""}${admin ? `<button class="btn btn-primary" id="cr-new" type="button">${icon("plus", 18)}<span>Novo carrinho</span></button>` : ""}</div></div><div id="cr-list">${loadingState()}</div>`;
+  qs("#view").innerHTML = `<div class="toolbar"><label class="search">${icon("search", 18)}<input id="cr-q" type="search" value="${esc(state.carts.q)}" placeholder="Carrinho, local ou número de computador" autocomplete="off"></label><div class="toolbar-end">${state.profile?.role !== "student" ? `<button class="btn" id="cr-sheet" type="button">${icon("sheet", 18)}<span>Planilha</span></button>` : ""}${admin ? `<button class="btn btn-primary" id="cr-new" type="button">${icon("plus", 18)}<span>Novo carrinho</span></button>` : ""}</div></div><div id="cr-list">${loadingState()}</div>`;
   qs("#cr-new")?.addEventListener("click", () => openCartForm());
   qs("#cr-sheet")?.addEventListener("click", exportEquipments);
-  let map, devices, lateIds = new Set();
-  try { [map, devices] = await Promise.all([loadCartMap(true), loadDevices()]); } catch (error) { if (alive(gen)) qs("#cr-list").innerHTML = emptyState("Erro ao carregar.", errText(error), "warn"); return; }
-  try { (await loadOpenWithdrawals()).filter(w => w.overdue).forEach(w => w.pending.forEach(i => lateIds.add(String(i.equipment_id)))); } catch {}
+  let ctx;
+  try { ctx = await cartContext(true); } catch (error) { if (alive(gen)) qs("#cr-list").innerHTML = emptyState("Erro ao carregar.", errText(error), "warn"); return; }
   if (!alive(gen)) return;
-  const byCode = new Map(devices.map(d => [norm(d.code), d]));
-  const st = d => !d ? "unavailable" : d.status === "in_use" && lateIds.has(String(d.id)) ? "overdue" : d.status;
-  setTitle("Carrinhos", `${map.carts.length} carrinho(s) · ${map.byCode.size} equipamento(s) guardados neles`);
+  const { map, devices, byCode, st } = ctx;
+  const loose = devices.filter(d => !map.byCode.has(norm(d.code)));
+  setTitle("Carrinhos", `${map.carts.length} carrinho(s) · ${map.byCode.size} computador(es) com carrinho`);
   const paint = () => {
     const rows = smartFilter(map.carts, state.carts.q, c => [cartName(c), `carrinho ${c.cart_number}`, c.location_text, ...(c.equipment_codes || [])]);
-    qs("#cr-list").innerHTML = rows.length ? `<div class="cart-board">${rows.map(c => {
-      const codes = (c.equipment_codes || []).slice().sort(numSort), ds = codes.map(code => ({ code, d: byCode.get(norm(code)) }));
-      const n = k => ds.filter(x => st(x.d) === k).length, inside = n("available");
-      const cap = Number(c.capacity || 0), empty = Math.max(0, cap - codes.length);
-      return `<article class="cart-panel">
-        <header class="cart-head"><span class="cart-ic">${icon("cart", 24)}</span><div><h2>${esc(cartName(c))}</h2><small>${esc(c.location_text || "Local não informado")}</small></div><span class="cart-count"><b>${inside}</b>/${codes.length}<small>no carrinho</small></span></header>
-        <div class="cart-stats"><span class="lg s-available">${inside} guardados</span><span class="lg s-in_use">${n("in_use")} fora</span>${n("overdue") ? `<span class="lg s-overdue">${n("overdue")} atrasados</span>` : ""}${n("maintenance") ? `<span class="lg s-maintenance">${n("maintenance")} manutenção</span>` : ""}</div>
-        <div class="slots">${ds.map(x => `<button type="button" class="slot s-${st(x.d)}" ${x.d ? `data-dev="${esc(x.d.id)}"` : "disabled"} title="Nº ${esc(x.code)} · ${esc(statusLabel(st(x.d)))}">${icon("laptop", 20)}<span>${esc(x.code)}</span></button>`).join("")}${Array.from({ length: Math.min(empty, 60) }, () => `<span class="slot slot-empty" aria-hidden="true"></span>`).join("")}</div>
-        <footer class="cart-foot"><button class="btn btn-sm" type="button" data-qr="${esc(c.qr_token)}">${icon("qr", 15)}QR</button>${admin ? `<button class="btn btn-sm" type="button" data-edit="${esc(c.qr_token)}">${icon("edit", 15)}Editar</button>` : ""}<button class="btn btn-sm" type="button" data-audit="${esc(c.qr_token)}">${icon("camera", 15)}Conferir</button><button class="btn btn-sm btn-primary" type="button" data-open="${esc(c.qr_token)}" ${inside ? "" : "disabled"}>${icon("out", 15)}Retirar</button></footer>
-      </article>`;
-    }).join("")}</div>` : emptyState("Nenhum carrinho.", admin ? "Crie um carrinho e diga quais números ficam nele (ex.: 1-30)." : "", "cart");
-    const byToken = new Map(map.carts.map(c => [c.qr_token, c]));
-    qsa("[data-dev]").forEach(b => b.addEventListener("click", () => openDevice(b.dataset.dev)));
-    qsa("[data-open]").forEach(b => b.addEventListener("click", () => openCart(b.dataset.open)));
-    qsa("[data-qr]").forEach(b => b.addEventListener("click", () => openQr(b.dataset.qr, cartName(byToken.get(b.dataset.qr)), "Carrinho")));
-    qsa("[data-edit]").forEach(b => b.addEventListener("click", () => { const c = byToken.get(b.dataset.edit); openCartForm({ id: c.cart_id, number: c.cart_number, name: c.cart_name, qr_token: c.qr_token, location_text: c.location_text, capacity: c.capacity, notes: c.notes, equipment_codes: c.equipment_codes || [] }); }));
-    qsa("[data-audit]").forEach(b => b.addEventListener("click", () => openCartAudit(byToken.get(b.dataset.audit), byCode)));
+    const card = c => {
+      const ds = (c.equipment_codes || []).map(code => byCode.get(norm(code))).filter(Boolean).sort((a, b) => numSort(a.code, b.code));
+      const n = k => ds.filter(d => st(d) === k).length, inside = n("available"), out = n("in_use") + n("overdue");
+      const cap = Number(c.capacity || 0) || ds.length, pct = k => cap ? (n(k) * 100 / cap) : 0;
+      const models = [...ds.reduce((a, d) => a.set(modelKey(d), (a.get(modelKey(d)) || 0) + 1), new Map())];
+      return `<button type="button" class="cart-card2" data-open="${esc(c.cart_id)}">
+        <span class="cc-top"><span class="cart-ic">${icon("cart", 22)}</span><span class="cc-name"><b>${esc(cartName(c))}</b><small>${esc(c.location_text || "Local não informado")}</small></span><span class="cc-num"><b>${inside}</b><small>de ${ds.length} guardados</small></span></span>
+        <span class="cc-bar"><i class="s-available" style="width:${pct("available")}%"></i><i class="s-in_use" style="width:${pct("in_use")}%"></i><i class="s-overdue" style="width:${pct("overdue")}%"></i><i class="s-maintenance" style="width:${pct("maintenance")}%"></i></span>
+        <span class="cc-dots">${ds.map(d => `<i class="s-${st(d)}" title="Nº ${esc(d.code)} · ${esc(statusLabel(st(d)))}"></i>`).join("")}${Array.from({ length: Math.max(0, Math.min(60, cap - ds.length)) }, () => `<i class="empty"></i>`).join("")}</span>
+        <span class="cc-foot">${out ? `<span class="lg s-in_use">${out} fora</span>` : `<span class="lg s-available">todos guardados</span>`}${n("overdue") ? `<span class="lg s-overdue">${n("overdue")} atrasado(s)</span>` : ""}${n("maintenance") ? `<span class="lg s-maintenance">${n("maintenance")} manutenção</span>` : ""}<span class="cc-models">${esc(models.map(([k, v]) => `${v}× ${k}`).join(" · "))}</span></span>
+      </button>`;
+    };
+    qs("#cr-list").innerHTML = (rows.length ? `<div class="cart-board2">${rows.map(card).join("")}</div>` : emptyState("Nenhum carrinho.", admin ? "Crie um carrinho e escolha os computadores que ficam nele." : "", "cart"))
+      + (loose.length && !state.carts.q ? `<div class="callout">${icon("laptop", 18)}<span><b>${loose.length} computador(es) sem carrinho</b> — ${esc(groupDevices(loose).map(g => `${g.items.length}× ${g.model}`).join(" · "))}</span>${admin ? `<button class="btn btn-sm" type="button" id="cr-loose">Montar carrinho com eles</button>` : ""}</div>` : "");
+    qsa("[data-open]").forEach(b => b.addEventListener("click", () => { state.carts.open = b.dataset.open; renderCarts(++viewGen); }));
+    qs("#cr-loose")?.addEventListener("click", () => openCartForm({ equipment_codes: [] }));
   };
   let t; qs("#cr-q").addEventListener("input", e => { clearTimeout(t); t = setTimeout(() => { state.carts.q = e.target.value; paint(); }, 150); });
   paint();
+}
+
+/** Página do carrinho: cada vaga mostra qual computador do inventário está nela. */
+async function renderCartDetail(gen, cartId) {
+  const admin = isAdmin();
+  qs("#view").innerHTML = loadingState();
+  let ctx;
+  try { ctx = await cartContext(true); } catch (error) { if (alive(gen)) qs("#view").innerHTML = emptyState("Erro ao carregar.", errText(error), "warn"); return; }
+  if (!alive(gen)) return;
+  const { map, byCode, holder, st } = ctx;
+  const cart = map.carts.find(c => String(c.cart_id) === String(cartId));
+  if (!cart) { state.carts.open = null; return renderCarts(++viewGen); }
+  const ds = (cart.equipment_codes || []).map(code => byCode.get(norm(code))).filter(Boolean).sort((a, b) => numSort(a.code, b.code));
+  const byId = new Map(ds.map(d => [String(d.id), d]));
+  const sel = new Set(), ui = { filter: "", focus: null };
+  const cap = Number(cart.capacity || 0);
+  const n = k => ds.filter(d => st(d) === k).length;
+  setTitle(cartName(cart), `${cart.location_text || "Local não informado"}${cap ? ` · ${cap} vagas` : ""}`);
+  qs("#view").innerHTML = `<div class="cd-head"><button class="btn btn-ghost" type="button" id="cd-back">${icon("chevron", 16)}<span>Carrinhos</span></button>
+      <div class="toolbar-end">${admin ? `<button class="btn" type="button" id="cd-edit">${icon("edit", 17)}<span>Editar</span></button>` : ""}<button class="btn" type="button" id="cd-audit">${icon("camera", 17)}<span>Conferir</span></button><button class="btn" type="button" id="cd-qr">${icon("qr", 17)}<span>QR</span></button></div></div>
+    <div class="board-sum board-sum-5"><div><b>${n("available")}</b><span>guardados</span></div><div><b>${n("in_use") + n("overdue")}</b><span>fora</span></div><div class="${n("overdue") ? "is-late" : ""}"><b>${n("overdue")}</b><span>atrasados</span></div><div><b>${n("maintenance")}</b><span>manutenção</span></div><div><b>${cap ? Math.max(0, cap - ds.length) : "—"}</b><span>vagas livres</span></div></div>
+    <div class="cd-grid">
+      <section class="card cd-slots-card">
+        <header class="card-head"><div class="chips chips-tight" id="cd-filter">${[["", "Todos", ds.length], ["available", "Guardados", n("available")], ["out", "Fora", n("in_use") + n("overdue")], ["maintenance", "Manutenção", n("maintenance")]].map(([k, l, c]) => `<button type="button" class="chip ${k === "" ? "on" : ""}" data-f="${k}">${l}<b>${c}</b></button>`).join("")}</div>
+          <span class="hint">${icon("select", 14)} Clique para marcar · arraste para marcar vários · clique fora para limpar</span></header>
+        <div class="slots cd-slots" id="cd-slots"></div>
+      </section>
+      <aside class="cd-panel" id="cd-panel"></aside>
+    </div>`;
+  const slotsHost = qs("#cd-slots"), panel = qs("#cd-panel");
+  const visible = () => ds.filter(d => !ui.filter || (ui.filter === "out" ? ["in_use", "overdue"].includes(st(d)) : st(d) === ui.filter));
+  const paintSlots = () => {
+    slotsHost.innerHTML = visible().map(d => `<button type="button" class="slot slot-xl s-${esc(st(d))} ${sel.has(String(d.id)) ? "picked" : ""}" data-id="${esc(d.id)}" title="Nº ${esc(d.code)} · ${esc(d.model || "")}">${icon("laptop", 20)}<span>${esc(d.code)}</span><small>${esc(st(d) === "available" ? "guardado" : statusLabel(st(d)).toLowerCase())}</small></button>`).join("") || `<p class="lane-empty">Nenhum computador com esse filtro.</p>`;
+  };
+  const info = d => {
+    const h = holder.get(String(d.id));
+    const rows = [["Modelo", [d.brand !== "Não informado" ? d.brand : "", d.model].filter(Boolean).join(" ")], ["Tipo", schoolGroupLabel(d.school_group)], ["Plataforma", [d.operating_system, d.processor, d.ram_gb ? `${d.ram_gb} GB` : ""].filter(Boolean).join(" · ")], ["Nº de série", d.serial_number], ["Patrimônio", d.asset_tag], ["Local cadastrado", d.location_text], ...EquipaSettings.describe(d.specs)].filter(([, v]) => v && v !== "Sem tipo");
+    return `<div class="cd-pc"><div class="dev-status s-${esc(st(d))}">${groupIcon(d.school_group, 22)}<div><b>Nº ${esc(d.code)} · ${esc(st(d) === "available" ? "No carrinho" : statusLabel(st(d)))}</b><small>${h ? `Com ${esc(h.custodian_name || h.responsible_name || "não identificado")} · ${esc([h.class_name, h.destination].filter(Boolean).join(" · "))} · ${esc(relativeDue(h.due_at))}` : esc(d.model || "")}</small></div></div>
+      <dl class="info info-1">${rows.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
+      <div class="row-wrap"><button class="btn btn-sm" type="button" data-act="open">${icon("laptop", 15)}Abrir ficha</button>${h ? `<button class="btn btn-sm" type="button" data-act="ticket">${icon("board", 15)}Ver comanda</button>` : ""}</div></div>`;
+  };
+  const paintPanel = () => {
+    const list = [...sel].map(id => byId.get(id)).filter(Boolean).sort((a, b) => numSort(a.code, b.code));
+    const free = list.filter(d => st(d) === "available");
+    if (!list.length) {
+      const models = [...ds.reduce((a, d) => a.set(modelKey(d), (a.get(modelKey(d)) || 0) + 1), new Map())];
+      panel.innerHTML = `<h3>Neste carrinho</h3><div class="ce-mix">${models.map(([k, v]) => `<span>${icon("laptop", 13)} ${v} × ${esc(k)}</span>`).join("") || "<span>Vazio</span>"}</div>
+        <p class="hint">${icon("info", 14)} Clique numa vaga para ver qual computador do inventário está nela (modelo, série, patrimônio, com quem está).</p>
+        <div class="legend"><span class="lg s-available">Guardado</span><span class="lg s-in_use">Fora</span><span class="lg s-overdue">Atrasado</span><span class="lg s-maintenance">Manutenção</span></div>
+        ${n("available") ? `<button class="btn btn-primary btn-block" type="button" data-act="out-all">${icon("out", 17)}Retirar do carrinho (${n("available")} livres)</button>` : ""}`;
+    } else if (list.length === 1) {
+      panel.innerHTML = info(list[0]) + actions(list, free);
+    } else {
+      panel.innerHTML = `<h3>${list.length} selecionados</h3><div class="ce-chips">${list.map(d => `<span class="t-item s-${esc(st(d))}">${icon("laptop", 13)}${esc(d.code)}</span>`).join("")}</div>${actions(list, free)}`;
+    }
+    const on = (a, fn) => qs(`[data-act="${a}"]`, panel)?.addEventListener("click", fn);
+    on("open", () => openDevice(list[0].id));
+    on("ticket", () => openWithdrawal(holder.get(String(list[0].id)).id));
+    on("out", () => openCounter(free, { step: "ticket" }));
+    on("out-all", () => openCounter(ds.filter(d => st(d) === "available"), { step: "ticket" }));
+    on("labels", () => EquipaRegister.downloadLabels(list, `Equipa-${cartName(cart)}`));
+    on("remove", () => removeFromCart(list));
+    on("move", () => moveToCart(list));
+    on("clear", () => { sel.clear(); paintSlots(); paintPanel(); });
+  };
+  const actions = (list, free) => `<div class="cd-actions">
+      ${free.length ? `<button class="btn btn-primary" type="button" data-act="out">${icon("out", 16)}Retirar ${free.length}</button>` : ""}
+      ${admin ? `<button class="btn" type="button" data-act="move">${icon("cart", 16)}Mover para outro carrinho</button><button class="btn btn-ghost danger" type="button" data-act="remove">${icon("trash", 16)}Tirar do carrinho</button>` : ""}
+      ${admin ? `<button class="btn" type="button" data-act="labels">${icon("tag", 16)}Etiquetas</button>` : ""}
+      ${list.length > 1 ? `<button class="btn btn-ghost" type="button" data-act="clear">Limpar seleção</button>` : ""}</div>`;
+  const save = async (target, codes, move) => {
+    let res = await supabase.rpc("equipa_save_cart", { p_cart_id: Number(target.cart_id), p_number: Number(target.cart_number), p_name: target.cart_name || null, p_equipment_codes: codes, p_location_text: target.location_text || null, p_capacity: target.capacity || null, p_notes: target.notes || null, p_move: move });
+    if (res.error) throw res.error;
+  };
+  async function removeFromCart(list) {
+    const ids = new Set(list.map(d => String(d.id)));
+    const rest = ds.filter(d => !ids.has(String(d.id))).map(d => d.code);
+    const msg = `Nº ${list.slice(0, 12).map(d => d.code).join(", ")}${list.length > 12 ? "…" : ""} saem deste carrinho e ficam “sem carrinho”. Eles continuam cadastrados no inventário.`;
+    if (!rest.length) {
+      if (!await confirmAction({ title: "Esvaziar o carrinho?", message: `${msg} O carrinho ficará vazio e será desativado (o número e o QR podem ser reaproveitados).`, confirmText: "Esvaziar e desativar", danger: true })) return;
+      const { error } = await supabase.from("equipment_carts").update({ is_active: false }).eq("id", Number(cart.cart_id));
+      if (error) return notify(errText(error), "error");
+      notify("Carrinho esvaziado e desativado.", "success"); state.carts.open = null; cartMapCache.at = 0; return renderCarts(++viewGen);
+    }
+    if (!await confirmAction({ title: `Tirar ${list.length} do carrinho?`, message: msg, confirmText: `Tirar ${list.length}`, danger: true })) return;
+    try { await save(cart, rest, false); notify(`${list.length} computador(es) tirado(s) do carrinho.`, "success"); cartMapCache.at = 0; renderCarts(++viewGen); }
+    catch (error) { notify(errText(error), "error"); }
+  }
+  async function moveToCart(list) {
+    const others = map.carts.filter(c => String(c.cart_id) !== String(cart.cart_id));
+    if (!others.length) return notify("Não há outro carrinho. Crie um primeiro.", "warning");
+    const m = openSheet({ size: "sm", title: `Mover ${list.length} para…`, body: `<div class="menu">${others.map((c, i) => { const used = (c.equipment_codes || []).length, room = c.capacity ? c.capacity - used : null; return `<button type="button" class="menu-item" data-c="${i}" ${room !== null && room < list.length ? "disabled" : ""}>${icon("cart", 20)}<span><b>${esc(cartName(c))}</b><small>${used} computador(es)${room !== null ? ` · ${room} vaga(s) livre(s)` : ""} · ${esc(c.location_text || "")}</small></span>${icon("chevron", 16)}</button>`; }).join("")}</div>` });
+    qsa("[data-c]", m).forEach(b => b.addEventListener("click", async () => {
+      const target = others[Number(b.dataset.c)]; setBusy(b, true, "Movendo…");
+      try {
+        await save(target, [...new Set([...(target.equipment_codes || []), ...list.map(d => d.code)])], true);
+        m.close(); notify(`${list.length} computador(es) movido(s) para ${cartName(target)}.`, "success"); cartMapCache.at = 0; renderCarts(++viewGen);
+      } catch (error) { setBusy(b, false); notify(errText(error), "error"); }
+    }));
+  }
+  slotsHost.addEventListener("click", e => {
+    const b = e.target.closest("[data-id]"); if (!b) return;
+    const id = b.dataset.id;
+    // Clique marca/desmarca e soma à seleção (com 1 marcado, o painel mostra a ficha dele).
+    if (sel.has(id)) sel.delete(id); else sel.add(id);
+    paintSlots(); paintPanel();
+  });
+  enableMarquee(slotsHost, { onSelect: (els, { additive }) => { const ids = els.map(el => el.dataset.id); if (!additive) sel.clear(); ids.forEach(id => sel.add(id)); paintSlots(); paintPanel(); } });
+  clearOnOutsideClick({ keep: "#cd-slots [data-id], #cd-panel", alive: () => slotsHost.isConnected, hasSelection: () => sel.size > 0, clear: () => { sel.clear(); paintSlots(); paintPanel(); } });
+  qsa("[data-f]").forEach(b => b.addEventListener("click", () => { ui.filter = b.dataset.f; qsa("[data-f]").forEach(x => x.classList.toggle("on", x === b)); paintSlots(); }));
+  qs("#cd-back").addEventListener("click", () => { state.carts.open = null; renderCarts(++viewGen); });
+  qs("#cd-edit")?.addEventListener("click", () => openCartForm({ id: cart.cart_id, number: cart.cart_number, name: cart.cart_name, location_text: cart.location_text, capacity: cart.capacity, notes: cart.notes, equipment_codes: cart.equipment_codes || [] }));
+  qs("#cd-qr").addEventListener("click", () => openQr(cart.qr_token, cartName(cart), "Carrinho"));
+  qs("#cd-audit").addEventListener("click", () => openCartAudit(cart, byCode));
+  document.addEventListener("keydown", function esc(e) { if (!qs("#cd-slots")) return document.removeEventListener("keydown", esc); if (e.key === "Escape" && !qs(".overlay") && sel.size) { sel.clear(); paintSlots(); paintPanel(); } });
+  paintSlots(); paintPanel();
 }
 /** Conferência: aponte a câmera (ou fotografe o carrinho) e veja o que falta. */
 function openCartAudit(cart, byCode) {
@@ -425,36 +550,17 @@ function openCartAudit(cart, byCode) {
       qsa("[data-dev]", m).forEach(b => b.addEventListener("click", () => { m.close(); openDevice(b.dataset.dev); }));
     } });
 }
+/** Aberto pelo QR do carrinho ou por um atalho: vai para a página do carrinho. */
 async function openCart(token) {
-  const m = openSheet({ size: "lg", title: "Carrinho", body: loadingState() });
-  const { data, error } = await supabase.rpc("cart_scan_equipment_list_v2", { p_qr_token: token });
-  if (!m.isConnected) return;
-  if (error) { setSheet(m, { body: emptyState("Não foi possível abrir.", errText(error), "warn") }); return; }
-  const items = (data || []).sort((a, b) => numSort(a.code, b.code));
-  if (!items.length) { setSheet(m, { body: emptyState("Carrinho vazio ou indisponível.", "", "cart") }); return; }
-  const c = items[0], title = c.cart_name || `Carrinho ${c.cart_number}`;
-  const free = items.filter(x => x.is_active && x.status === "available");
-  const sel = new Set(free.slice(0, 60).map(x => String(x.equipment_id)));
-  const paint = () => {
-    setSheet(m, { title: `${icon("cart", 20)} ${esc(title)}`, subtitle: `${esc(c.cart_location || "Local não informado")} · ${free.length} de ${items.length} no carrinho`,
-      body: `<div class="row-between"><span class="hint">Toque para tirar ou pôr na comanda.</span><div class="row-wrap"><button class="btn btn-sm" type="button" id="cs-none">Nenhum</button><button class="btn btn-sm" type="button" id="cs-all">Todos livres</button></div></div>
-        <div class="slots">${items.map(i => { const ok = i.is_active && i.status === "available"; return `<button type="button" class="slot s-${esc(ok ? "available" : i.status)} ${sel.has(String(i.equipment_id)) ? "picked" : ""}" data-ci="${esc(i.equipment_id)}" ${ok ? "" : "disabled"}>${icon("laptop", 22)}<span>${esc(i.code)}</span></button>`; }).join("")}</div>
-        ${c.cart_notes ? `<p class="hint">${esc(c.cart_notes)}</p>` : ""}`,
-      foot: `<button class="btn" type="button" id="cs-qr">${icon("qr", 18)}<span>QR</span></button><button class="btn btn-primary btn-lg" type="button" id="cs-out" ${sel.size ? "" : "disabled"}>Retirar ${sel.size}</button>` });
-    qsa("[data-ci]", m).forEach(b => b.addEventListener("click", () => { const id = b.dataset.ci; if (sel.has(id)) sel.delete(id); else if (sel.size < 60) sel.add(id); else notify("Até 60 por retirada.", "warning"); paint(); }));
-    qs("#cs-none", m).addEventListener("click", () => { sel.clear(); paint(); });
-    qs("#cs-all", m).addEventListener("click", () => { free.slice(0, 60).forEach(x => sel.add(String(x.equipment_id))); paint(); });
-    qs("#cs-qr", m).addEventListener("click", () => openQr(token, title, `${items.length} equipamentos`));
-    qs("#cs-out", m).addEventListener("click", () => { const chosen = items.filter(i => sel.has(String(i.equipment_id))).map(i => ({ ...i, id: i.equipment_id })); if (!chosen.length) return; m.close(); openCounter(chosen, { step: "ticket" }); });
-  };
-  paint();
+  try {
+    const map = await loadCartMap(true);
+    const c = map.carts.find(x => x.qr_token === token);
+    if (!c) return notify("Carrinho não encontrado ou desativado.", "warning");
+    qsa(".overlay").forEach(o => o.close ? o.close() : o.remove());
+    state.carts.open = c.cart_id;
+    if (state.view === "carts") renderCarts(++viewGen); else navigate("carts");
+  } catch (error) { notify(errText(error), "error"); }
 }
-/**
- * Editor de carrinho: só aceita computadores já registrados.
- * Escolha por modelo/tipo ("pegar 30 Chromebooks"), toque para pôr ou tirar um
- * número, e um resumo de logística (vagas, tipos, plataformas, o que vem de outro
- * carrinho, o que está emprestado). Um computador fica em um carrinho só.
- */
 async function openCartForm(rec = null) {
   const editing = !!rec?.id;
   const m = openSheet({ size: "full", className: "cart-editor", title: editing ? `Editar ${esc(cartName({ cart_name: rec.name, cart_number: rec.number }))}` : "Novo carrinho", subtitle: "Escolha entre os computadores registrados. Toque para pôr ou tirar.", body: loadingState("Carregando computadores…") });
@@ -470,6 +576,7 @@ async function openCartForm(rec = null) {
   // Seleção atual: os do carrinho (edição) ou os sugeridos (ex.: vindos do cadastro).
   const chosen = new Set((rec?.equipment_codes || []).map(c => byCode.get(norm(c))?.id).filter(Boolean).map(String));
   const ui = { q: "", by: "model", show: "free", open: new Set() };
+  const rmSel = new Set();
 
   setSheet(m, { body: `<div class="ce-grid">
       <section class="ce-pick">
@@ -488,7 +595,7 @@ async function openCartForm(rec = null) {
           ${EquipaSettings.locationDatalist("cart-locs", devices.map(d => d.location_text))}
         </form>
         <div class="ce-sum" id="ce-sum"></div>
-        <div class="ce-in"><div class="section-head"><h3>No carrinho</h3><button type="button" class="link" id="ce-clear">Tirar todos</button></div><div class="ce-chips" id="ce-in"></div></div>
+        <div class="ce-in"><div class="section-head"><h3>No carrinho</h3><span class="row-wrap"><button type="button" class="btn btn-sm btn-ghost danger" id="ce-rm-sel" hidden></button><button type="button" class="link" id="ce-clear">Tirar todos</button></span></div><p class="hint">Clique num número para tirar · arraste por cima de vários para marcar.</p><div class="ce-chips" id="ce-in"></div></div>
         <label class="check"><input type="checkbox" id="ce-setloc" checked><span>Atualizar o local dos computadores para o local do carrinho</span></label>
         <label class="field"><span>Observações</span><textarea name="notes" form="cart-form" maxlength="1200" rows="2">${esc(rec?.notes || "")}</textarea></label>
       </aside></div>`,
@@ -505,7 +612,9 @@ async function openCartForm(rec = null) {
     const fromOther = list.filter(otherCart), out = list.filter(d => d.status === "in_use"), fix = list.filter(d => d.status === "maintenance");
     const count = (arr, f) => { const c = new Map(); arr.forEach(d => { const k = f(d) || "—"; c.set(k, (c.get(k) || 0) + 1); }); return [...c].sort((a, b) => b[1] - a[1]); };
     const types = count(list, d => modelKey(d)), oss = count(list, d => d.operating_system);
-    qs("#ce-in", m).innerHTML = list.length ? list.map(d => `<button type="button" class="t-item t-item-x ${otherCart(d) ? "warn" : ""}" data-rm="${esc(d.id)}" title="Tirar Nº ${esc(d.code)}">${icon("laptop", 13)}${esc(d.code)}<i>${icon("x", 11)}</i></button>`).join("") : `<p class="lane-empty">Nenhum computador ainda. Escolha à esquerda.</p>`;
+    for (const id of [...rmSel]) if (!chosen.has(id)) rmSel.delete(id);
+    const rb = qs("#ce-rm-sel", m); rb.hidden = !rmSel.size; rb.textContent = `Tirar ${rmSel.size} marcados`;
+    qs("#ce-in", m).innerHTML = list.length ? list.map(d => `<button type="button" class="t-item t-item-x ${otherCart(d) ? "warn" : ""} ${rmSel.has(String(d.id)) ? "sel" : ""}" data-rm="${esc(d.id)}" title="Tirar Nº ${esc(d.code)}">${icon("laptop", 13)}${esc(d.code)}<i>${icon("x", 11)}</i></button>`).join("") : `<p class="lane-empty">Nenhum computador ainda. Escolha à esquerda.</p>`;
     qs("#ce-sum", m).innerHTML = `<div class="ce-cap ${cap && list.length > cap ? "over" : ""}"><b>${list.length}</b><span>${cap ? `de ${cap} vagas${list.length < cap ? ` · faltam ${cap - list.length}` : list.length > cap ? ` · ${list.length - cap} a mais` : " · completo"}` : "computadores"}</span>${cap ? `<i style="width:${Math.min(100, Math.round(list.length * 100 / cap))}%"></i>` : ""}</div>
       ${types.length ? `<div class="ce-mix">${types.map(([k, n]) => `<span>${icon("laptop", 13)} ${n} × ${esc(k)}</span>`).join("")}</div>` : ""}
       ${oss.length > 1 ? `<p class="hint">${icon("info", 14)} Plataformas misturadas: ${esc(oss.map(([k, n]) => `${n} ${k}`).join(", "))}.</p>` : ""}
@@ -549,7 +658,13 @@ async function openCartForm(rec = null) {
   qsa("[data-by]", m).forEach(b => b.addEventListener("click", () => { ui.by = b.dataset.by; ui.open.clear(); paint(); }));
   qsa("[data-show]", m).forEach(b => b.addEventListener("click", () => { ui.show = b.dataset.show; paint(); }));
   let t; qs("#ce-q", m).addEventListener("input", e => { clearTimeout(t); t = setTimeout(() => { ui.q = e.target.value; paint(); }, 120); });
-  qs("#ce-clear", m).addEventListener("click", () => { chosen.clear(); paint(); });
+  qs("#ce-clear", m).addEventListener("click", () => { chosen.clear(); rmSel.clear(); paint(); });
+  qs("#ce-rm-sel", m).addEventListener("click", () => { rmSel.forEach(id => chosen.delete(id)); rmSel.clear(); paint(); });
+  m.addEventListener("click", e => { if (rmSel.size && !e.target.closest("[data-rm], #ce-rm-sel")) { rmSel.clear(); paintSide(); } });
+  // Arrastar sobre as vagas à esquerda: põe todos (ou tira, se todos já estavam).
+  enableMarquee(groupsHost, { onSelect: els => { const ids = els.map(el => el.dataset.id); if (ids.every(id => chosen.has(id))) ids.forEach(id => chosen.delete(id)); else add(ids.filter(id => !chosen.has(id))); paint(); } });
+  // Arrastar sobre a lista “No carrinho”: marca para tirar de uma vez.
+  enableMarquee(qs("#ce-in", m), { item: "[data-rm]", onSelect: (els, { additive }) => { if (!additive) rmSel.clear(); toggleMany(rmSel, els.map(el => el.dataset.rm)); paintSide(); } });
   form.elements.capacity.addEventListener("input", paintSide);
   // Abre o primeiro grupo para ninguém ficar diante de uma lista fechada.
   const first = [...devices].sort((a, b) => numSort(a.code, b.code)).find(free); if (first) ui.open.add(modelKey(first));

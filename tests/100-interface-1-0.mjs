@@ -57,3 +57,9 @@ console.log('Interface 1.1: carrinho, herança, ajustes e 16:9 aprovados.');
 assert(!/<textarea name="codes"/.test(ctl), 'Carrinho não deve aceitar números digitados livremente');
 for (const f of ['data-qty-go', 'data-by="type"', 'data-show="all"', 'ce-sum', 'otherCart']) assert(ctl.includes(f), `Editor de carrinho sem ${f}`);
 console.log('Editor de carrinho aprovado.');
+
+// Seleção por arrasto e página do carrinho.
+assert.match(ui, /function enableMarquee/);
+for (const f of ['renderCartDetail', 'removeFromCart', 'moveToCart', 'enableMarquee(slotsHost', 'enableMarquee(groupsHost']) assert(ctl.includes(f), `Carrinhos sem ${f}`);
+assert(app.includes('enableMarquee(qs("#dev-results")'), 'Equipamentos sem seleção por arrasto');
+console.log('Arrasto e página do carrinho aprovados.');

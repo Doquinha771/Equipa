@@ -349,7 +349,7 @@ function mountShell() {
   </div>`;
   shellMounted = true;
   setTheme(isDark() ? "dark" : "light");
-  qsa("[data-nav]").forEach(b => b.addEventListener("click", () => navigate(b.dataset.nav)));
+  qsa("[data-nav]").forEach(b => b.addEventListener("click", () => { if (b.dataset.nav === "carts") state.carts.open = null; navigate(b.dataset.nav); }));
   qsa("[data-camera]").forEach(b => b.addEventListener("click", () => EquipaCamera.open({ mode: "find" })));
   qsa("[data-theme-toggle]").forEach(b => b.addEventListener("click", toggleTheme));
   qsa("[data-logout]").forEach(b => b.addEventListener("click", () => supabase.auth.signOut()));
@@ -566,6 +566,20 @@ async function renderDevices(gen) {
   try { cartOf = (await loadCartMap()).byCode; } catch {}
   if (!alive(gen)) return;
   devicesView = { rows, lateIds, cartOf };
+  // Clique fora dos cartões (e fora da barra de ações) desmarca e sai do modo de seleção.
+  const resultsHost = qs("#dev-results");
+  clearOnOutsideClick({ keep: "[data-dev], #selbar, #dev-select, [data-group-all], .group-toggle", alive: () => resultsHost.isConnected, hasSelection: () => s.selecting && s.selected.size > 0,
+    clear: () => { s.selected.clear(); s.selecting = false; const b = qs("#dev-select"); if (b) { b.classList.remove("btn-on"); b.querySelector("span").textContent = "Selecionar"; } paintDevices(); } });
+  // Arrastar o mouse sobre os cartões entra no modo de seleção e marca vários.
+  enableMarquee(qs("#dev-results"), { item: "[data-dev]", onSelect: (els, { additive }) => {
+    const byId = new Map(devicesView.rows.map(d => [String(d.id), d]));
+    if (!s.selecting) { s.selecting = true; const b = qs("#dev-select"); if (b) { b.classList.add("btn-on"); b.querySelector("span").textContent = "Selecionando"; } }
+    const list = els.map(el => byId.get(el.dataset.dev)).filter(Boolean);
+    const allOn = list.every(d => s.selected.has(d.id));
+    if (!additive && !allOn) s.selected.clear();
+    list.forEach(d => allOn ? s.selected.delete(d.id) : s.selected.set(d.id, d));
+    paintDevices();
+  } });
   paintDevices();
 }
 let devicesView = { rows: [], lateIds: new Set(), cartOf: new Map() };
