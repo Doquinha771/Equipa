@@ -1,134 +1,126 @@
-<div align="center">
-
 # Equipa
 
-**Gestão responsável de equipamentos escolares.**
+**Controle dos computadores e carrinhos da escola** — E.E. Amador e Catharina.
 
-![Versão](https://img.shields.io/badge/vers%C3%A3o-0.2.8--alpha-5d666d?style=for-the-badge)
-![Plataforma](https://img.shields.io/badge/plataforma-web-69737a?style=for-the-badge)
-![Estado](https://img.shields.io/badge/estado-alpha%20em%20testes-78838a?style=for-the-badge)
-![Privacidade](https://img.shields.io/badge/privacidade-LGPD-626d74?style=for-the-badge)
+O Equipa registra quem retirou cada equipamento, até quando, onde está, em qual
+carrinho fica guardado e o histórico de tudo. É um site estático (GitHub Pages)
+ligado a um projeto Supabase (PostgreSQL), sem servidor próprio e sem etapa de build.
 
-</div>
+Versão atual: **1.3.0** (`assets/js/config.js`).
 
----
+## O que o sistema faz
 
-O **Equipa** é uma plataforma web criada para organizar o uso de equipamentos de uma unidade escolar. O sistema reúne inventário, QR Codes, carrinhos, retiradas, devoluções, reservas, manutenção, administração e auditoria em um único ambiente.
+| Área | Para quê |
+|---|---|
+| **Início** | Situação agora (disponíveis, em uso, atrasados, manutenção), ações frequentes e retiradas em andamento. |
+| **Equipamentos** | Inventário por modelo ou em lista, busca, filtros de situação e de pendências de cadastro (sem carrinho, sem local, sem tipo, sem plataforma, sem série). Seleção por clique, arrasto e botão direito; ficha, edição individual e em grupo, renumeração, exclusão. |
+| **Controle** | Painel de comandas (atrasadas, vencendo em 1 h, no prazo, recebidas hoje), visão “Minhas/Todas”, histórico, balcão de retirada e recebimento com conferência (recebido, avaria, não achado). |
+| **Carrinhos** | Quadro de carrinhos, página de cada carrinho com as vagas e a ficha do computador de cada vaga, editor (só computadores cadastrados, por modelo ou tipo), mover/tirar vários, conferência pela câmera, exclusão. |
+| **Câmera** | Identificar, retirar, receber, conferir carrinho e cadastrar: QR Code, código de barras e leitura de texto (número colado no PC ou etiqueta de baixo) feita no próprio navegador. |
+| **Cadastro** | “Do 1 até o 30 + modelo”, um só, pela câmera ou por planilha (CSV, Excel, Word). Herança dos dados do modelo; números existentes nunca duplicam (opção “Substituir dados”). |
+| **Etiquetas QR** | Gerador com prévia na tela, três tamanhos, impressão em página própria e PDF. |
+| **Planilha** | Cada equipamento com número, modelo, carrinho, onde está agora, com quem e prazo; uma aba por carrinho para conferência. |
+| **Manutenção** | Pendências por tempo parado, abrir pela própria tela, concluir com resolução. |
+| **Relatórios** | Indicadores agregados no PostgreSQL, períodos rápidos e exportação CSV. |
+| **Usuários** | Contas pendentes em destaque, aprovação, cargos, remoção de acesso e banimento (Edge Function). |
+| **Auditoria** | Eventos paginados no servidor, filtros por tipo e ação, destaque para exclusões e bloqueios. |
+| **Configurações** | Fichas de modelo, campos personalizados dos equipamentos e lista de locais da escola. |
 
-A proposta é permitir que a equipe escolar saiba **qual equipamento está disponível, quem realizou uma retirada, quando ocorreu a devolução e qual é o histórico do patrimônio**, mantendo rastreabilidade sem transformar a rotina em uma planilha interminável.
+Perfis: **Aluno**, **Professor** e **Administrador**. Gestão (manutenção, relatórios,
+usuários, auditoria, configurações, cadastro e exclusões) é só da administração —
+e o banco confirma isso em cada operação.
 
-## Funções
-
-```text
-Inventário de equipamentos
-Grupos e identificação por tipo de dispositivo
-Pesquisa inteligente e filtros
-QR Code permanente por equipamento
-QR Code por carrinho
-Leitura de QR pelo celular
-Download de QR Codes em lote
-Retirada individual com prazo de devolução
-Retirada seletiva por carrinho
-Devolução com data e horário
-Fila de retiradas atrasadas
-Exclusão segura de cadastros sem histórico
-Retirada de circulação de equipamento com histórico
-Reservas futuras
-Reserva por quantidade e recorrência semanal limitada
-Check-in e expiração sem apagar histórico
-Devolução em lote com conferência de avarias e pendências
-Relatórios operacionais agregados
-Histórico por equipamento, pessoa e turma
-Controle de manutenção
-Cadastro individual, em lote e importação CSV, XLSX ou DOCX estruturado
-Modelos técnicos reutilizáveis com processador, RAM, armazenamento e sistema operacional
-Prévia editável e detecção de duplicados antes da confirmação
-Cadastro transacional de até 200 equipamentos por confirmação
-Etiquetas QR permanentes em PDF por seleção, localização ou inventário
-Exportação de inventário
-Aprovação e controle de acesso de usuários
-Banimento e restauração de acesso
-Auditoria administrativa
-Paginação e busca administrativa no servidor
-Relatórios e gráficos agregados no PostgreSQL
-Termos de Uso versionados
-Política de Privacidade versionada
-Registro de aceite dos documentos legais
-Interface adaptada para desktop e celular
-```
-
-## Equipamentos
-
-O Equipa foi preparado para o inventário utilizado pela escola, incluindo:
+## Estrutura
 
 ```text
-Chromebook
-Positivo novo
-Positivo técnico
-Positivo antigo
-ThinkPad Lenovo
-Tablet
-Outros equipamentos
+index.html                 Página única; carrega os scripts na ordem abaixo
+assets/css/equipa.css      Sistema visual (tokens de cor, componentes, temas claro/escuro, celular)
+assets/js/
+  config.js                URL e chave pública do Supabase, versão
+  boot-guard.js            Mostra erro se o app não iniciar
+  supabase.js              Cliente Supabase mínimo (Auth, REST, RPC, Edge Functions), sem dependências
+  core/ui.js               Utilitários, ícones, janelas, avisos, confirmação, arrasto, menu do botão direito
+  core/legal.js            Termos de Uso e Política de Privacidade
+  core/core.js             Tema, estado, mensagens de erro, QR
+  core/data.js             Dados compartilhados com cache curto (equipamentos, retiradas, modelos)
+  core/auth.js             Login, cadastro, senha, aceite legal, conta pendente
+  core/shell.js            Menu lateral, barra inferior, navegação, avisos
+  views/*.js               Uma tela por arquivo (home, devices, control, counter, returns,
+                           carts, export, maintenance, reports, users, audit, settings)
+  tools/register.js        Cadastro (vários, um, planilha, herança, substituir)
+  tools/labels.js          Gerador de etiquetas QR
+  tools/camera.js          Câmera (QR, código de barras, leitura de texto)
+  app.js                   Inicialização (último script)
+supabase/
+  migrations/              Histórico de migrations
+  functions/equipa-admin-users  Edge Function de administração de contas
+  *.sql                    Consultas de diagnóstico e capacidade (somente leitura) e instalação de cron
+docs/historico/            Notas de versões antigas, guardadas só como histórico
+tests/                     Testes automáticos (node tests/run.mjs)
 ```
 
-Cada equipamento pode possuir número/código, patrimônio, grupo, fabricante, modelo, nome, número de série, localização, estado e observações operacionais.
+Os scripts são clássicos (sem `import`), compartilham o escopo global e dependem
+da ordem do `index.html`: base → núcleo → ferramentas → telas → `app.js`.
+O teste `tests/110-structure.mjs` garante que nenhuma função é definida em dois
+módulos e que toda tela do menu tem função de desenho.
 
-## Carrinhos
+## Tecnologias
 
-Os carrinhos representam conjuntos físicos de equipamentos. Cada carrinho pode registrar nome, número, localização, capacidade, observações e os equipamentos vinculados.
+HTML, CSS e JavaScript puros; Supabase (Auth, PostgreSQL com RLS, RPCs, Edge
+Function); GitHub Pages. Bibliotecas carregadas sob demanda do jsDelivr com versão
+fixa: `qrcodejs`, `jsqr`, `jspdf`, `jszip`, `xlsx`, `tesseract.js` (leitura de texto
+pela câmera, roda no navegador; nenhuma imagem vai para o servidor).
 
-Ao ler o QR de um carrinho, o usuário pode escolher **quais equipamentos serão retirados e quantos serão selecionados**, sem obrigar a retirada do lote inteiro.
+## Supabase
 
-## Segurança e privacidade
+- Projeto `oxcfbsrukzfnzkivatsn`. O navegador usa **apenas a chave pública**;
+  nenhum segredo fica no site (`tests/static-audit.mjs` verifica).
+- Regras de negócio e permissões ficam no banco: RLS em todas as tabelas expostas,
+  RPCs `security definer` que conferem o cargo (`EQUIPA_ADMIN_REQUIRED`) e auditoria
+  por gatilho. O JavaScript só valida para ajudar.
+- No banco em produção, `equipments` e `equipment_models` são **visões** sobre um
+  catálogo normalizado (`equipment_units`, `equipment_variants`,
+  `equipment_model_catalog`, `equipment_manufacturers`, `equipment_categories`,
+  `equipment_locations`). Gravar em `equipments` passa pelo gatilho
+  `private.equipments_compat_write`. Parte dessa estrutura foi criada direto no
+  banco e não está nas migrations do repositório — veja `supabase/README.md`.
+- Edge Function `equipa-admin-users`: configure `EQUIPA_ALLOWED_ORIGINS` com o
+  endereço do site publicado.
+- Links de e-mail (confirmação e troca de senha): veja `supabase/AUTH-REDIRECT.md`.
+- Keepalive: `.github/workflows/equipa-supabase-keepalive.yml` toca o banco a cada
+  5 dias para o projeto gratuito não pausar.
 
-O Equipa adota autenticação individual, níveis de acesso, aprovação administrativa de novas contas, regras de acesso no banco de dados, auditoria e operações administrativas protegidas no servidor.
+## Migrations
 
-A chave presente no navegador possui apenas permissões públicas controladas. Credenciais administrativas e segredos de servidor não fazem parte dos arquivos públicos do site.
+Novas migrations devem ser **aditivas** e aplicadas manualmente (SQL Editor ou
+`supabase db push`) depois de revisadas — o GitHub Pages não executa nada no banco.
+A mais recente, `20261116010000_equipa_1_0_carts_models_settings.sql`, já está
+aplicada em produção (carrinhos, campos personalizados, fichas de modelo, ajustes).
+Detalhes e consultas de verificação em `supabase/README.md`.
 
-Os QR Codes funcionam como identificadores e não concedem, por si só, autorização para retirar ou alterar equipamentos. A execução de operações continua dependendo da conta autenticada e de suas permissões.
+## Testes
 
-O tratamento de dados foi pensado segundo princípios da LGPD, incluindo finalidade, necessidade, minimização, segurança, transparência, rastreabilidade e preservação dos direitos dos titulares.
-
-## Perfis
-
-```text
-Aluno
-Professor
-Administrador
+```bash
+node tests/run.mjs
 ```
 
-Contas novas podem permanecer aguardando aprovação antes de receber acesso ao inventário. A administração pode ajustar cargos, remover acesso, restaurar contas e aplicar bloqueios quando necessário à segurança ou à rotina escolar.
+Verificam: segredos fora do navegador, uso das RPCs paginadas/agregadas, contrato de
+retirada com custódia, CSP, ordem dos scripts, estrutura dos módulos, ícones, tema
+escuro completo, keepalive. Os testes da interface antiga estão em `tests/legacy/`
+(não são executados; ver o README de lá).
 
-## Auditoria
+Antes de publicar, confira também no navegador: login, retirada e devolução,
+cadastro em lote e individual, carrinhos, etiquetas, tema escuro e celular.
 
-A área de auditoria permite acompanhar eventos relevantes, como alterações no inventário, movimentações, reservas, manutenção, carrinhos, contas e aceites legais. O histórico administrativo é preservado para evitar que a exclusão de um cadastro elimine a rastreabilidade de ações anteriores.
+## Publicação
 
-## Integração com Supabase
+1. Rode `node tests/run.mjs`.
+2. Se houver migration nova, aplique-a no Supabase antes de publicar o site.
+3. Ao mudar arquivos JS/CSS, aumente a versão em `config.js` e nos `?v=` do
+   `index.html` (força os navegadores a baixar a versão nova).
+4. Faça commit e push para o branch publicado no GitHub Pages.
+5. Abra o site, faça login e confira as telas principais.
 
-O projeto Supabase conectado é `oxcfbsrukzfnzkivatsn`. As migrations corretivas 0.2.1 e 0.2.1.1 já foram aplicadas ao projeto, junto do Cron de auditorias. Para publicar no GitHub Pages, consulte `HOTFIX-0.2.1.2-SUPABASE.md`. A tela de login tem o botão **Testar conexão**.
+## Licença
 
-## Estado do projeto
-
-```text
-Nome        Equipa
-Versão      0.2.8 Alpha
-Plataforma  Web responsiva
-Uso         Gestão de equipamentos escolares
-Estado      Alpha · testes e piloto restrito
-```
-
-Antes do piloto, consulte `RELATORIO-AUDITORIA-0.2.1.md`, `PILOT-TEST-MATRIX.md` e `supabase/DEPLOY-0.2.1-PILOT.md`.
-
-**Hotfix 0.2.1.1:** leia `HOTFIX-0.2.1.1.md` antes de atualizar o banco. O pacote inclui
-`supabase/DIAGNOSTICO-RECUPERACAO.sql`, `supabase/CALCULO-CAPACIDADE.sql` e
-`supabase/INSTALL-CRON.sql`. As migrations precisam ser executadas no projeto Supabase
-correto depois de backup, e a limpeza automática só funciona com Supabase Cron ativado.
-
----
-
-<div align="center">
-
-**Equipa**  
-feito pela equipe da coordenação da escola e 3-A do ensino médio.
-
-</div>
+Veja `license`.

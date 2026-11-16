@@ -1,8 +1,9 @@
+import { readAll, APP } from './_modules.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
-const app = read('assets/js/app.js');
+const app = readAll(APP);
 const browserClient = read('assets/js/supabase.js');
 const config = read('assets/js/config.js');
 const migration = read('supabase/migrations/20260919205228_equipa_0_2_1_pilot_readiness.sql');

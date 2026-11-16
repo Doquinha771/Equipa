@@ -1,7 +1,8 @@
+import { readAll, APP, CONTROL } from './_modules.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const read=f=>readFileSync(new URL('../'+f,import.meta.url),'utf8');
-const code=read('assets/js/app.js')+read('assets/js/ui.js')+read('assets/js/control.js');
+const code=readAll(APP)+read('assets/js/core/ui.js')+readAll(CONTROL);
 const migration=read('supabase/migrations/20260921042225_equipa_0_2_2_custody_context.sql');
 for(const field of ['p_holder_mode','p_holder_name','p_holder_role','p_purpose','p_purpose_details']) {
  assert.match(code,new RegExp(field));assert.match(migration,new RegExp(field));

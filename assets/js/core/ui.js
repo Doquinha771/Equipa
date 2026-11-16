@@ -363,10 +363,29 @@ function openContextMenu(x, y, { title = "", items = [] } = {}) {
   qsa("[data-i]", menu).forEach(b => b.addEventListener("click", () => { const it = items[Number(b.dataset.i)]; close(); it?.action?.(); }));
   setTimeout(() => {
     document.addEventListener("pointerdown", e => { if (!menu.contains(e.target)) close(); }, { signal: ctrl.signal, capture: true });
-    document.addEventListener("keydown", e => { if (e.key === "Escape") { e.preventDefault(); close(); } }, { signal: ctrl.signal });
+    document.addEventListener("keydown", e => {
+      if (e.key === "Escape") { e.preventDefault(); close(); return; }
+      // Teclado: setas, Home/End e Tab percorrem as opções (como um menu do sistema).
+      const opts = qsa("button:not(:disabled)", menu), i = opts.indexOf(document.activeElement);
+      const go = n => { e.preventDefault(); opts[(n + opts.length) % opts.length]?.focus(); };
+      if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) go(i + 1);
+      else if (e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey)) go(i - 1);
+      else if (e.key === "Home") go(0);
+      else if (e.key === "End") go(opts.length - 1);
+    }, { signal: ctrl.signal });
     window.addEventListener("scroll", close, { signal: ctrl.signal, capture: true, once: true });
     window.addEventListener("resize", close, { signal: ctrl.signal, once: true });
   }, 0);
   qs("button:not(:disabled)", menu)?.focus({ preventScroll: true });
   return close;
 }
+
+/* Tecla Menu ou Shift+F10 sobre um item com foco abre o mesmo menu do botão direito. */
+document.addEventListener("keydown", e => {
+  if (!(e.key === "ContextMenu" || (e.shiftKey && e.key === "F10"))) return;
+  const el = document.activeElement?.closest?.("[data-id], [data-dev], [data-open]");
+  if (!el) return;
+  e.preventDefault();
+  const r = el.getBoundingClientRect();
+  el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }));
+});

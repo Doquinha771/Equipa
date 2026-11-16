@@ -1,14 +1,14 @@
-// Equipa 1.0 — verificação estática da nova interface (sem rede, sem banco).
+// Equipa — verificação estática da interface (sem rede, sem banco).
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
-const read = f => readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
-const html = read('index.html'), app = read('assets/js/app.js'), ui = read('assets/js/ui.js');
-const reg = read('assets/js/register.js'), cam = read('assets/js/camera.js'), ctl = read('assets/js/control.js'), css = read('assets/css/equipa.css');
+import { existsSync } from 'node:fs';
+import { ORDER, read, readAll, APP, CONTROL } from './_modules.mjs';
+const html = read('index.html'), app = readAll(APP), ui = read('assets/js/core/ui.js');
+const reg = read('assets/js/tools/register.js'), cam = read('assets/js/tools/camera.js'), ctl = readAll(CONTROL), css = read('assets/css/equipa.css');
 
 // Ordem de carregamento: base → módulos → app (que inicia o boot).
-const order = ['config', 'boot-guard', 'supabase', 'ui', 'legal', 'settings', 'register', 'labels', 'camera', 'control', 'app'].map(n => html.indexOf(`assets/js/${n}.js`));
+const order = ORDER.map(n => html.indexOf(`assets/js/${n}.js`));
 assert(order.every(i => i > 0) && order.every((v, i) => !i || v > order[i - 1]), 'Scripts fora de ordem no index.html');
-assert(!existsSync(new URL('../assets/js/inventory-021.js', import.meta.url)), 'Módulo antigo de cadastro ainda presente');
+for (const old of ['inventory-021', 'control', 'register', 'camera', 'ui']) assert(!existsSync(new URL(`../assets/js/${old}.js`, import.meta.url)), `Arquivo antigo na raiz: ${old}.js`);
 
 // CSP: OCR roda no navegador (worker em blob + WebAssembly), só a partir do jsDelivr.
 assert.match(html, /script-src 'self' 'wasm-unsafe-eval' https:\/\/cdn\.jsdelivr\.net/);
@@ -39,12 +39,12 @@ for (const rpc of ['equipa_admin_user_page', 'equipa_admin_audit_page', 'equipa_
 
 // Tema claro/escuro, celular e componentes do painel.
 assert.match(css, /:root\[data-theme="dark"\]/); assert.match(css, /@media \(max-width: 860px\)/);
-for (const c of ['.tabbar', '.board', '.ticket', '.slot', '.cart-panel', '.counter-grid', '.cam-modes']) assert(css.includes(c), `CSS sem ${c}`);
+for (const c of ['.tabbar', '.board', '.ticket', '.slot', '.counter-grid', '.cam-modes']) assert(css.includes(c), `CSS sem ${c}`);
 assert.match(ui, /function openSheet/);
 console.log('Interface 1.0: verificação estática aprovada.');
 
 // 1.1: carrinho com função nova (com volta à antiga), herança de modelo e ajustes.
-const mig = read('supabase/migrations/20261116010000_equipa_1_0_carts_models_settings.sql'), set = read('assets/js/settings.js');
+const mig = read('supabase/migrations/20261116010000_equipa_1_0_carts_models_settings.sql'), set = read('assets/js/views/settings.js');
 for (const s of ['public.equipa_save_cart', 'EQUIPA_CART_EQUIPMENT_TAKEN', 'EQUIPA_CART_UNKNOWN_CODES', 'equipa_settings', 'equipa_model_profiles', 'enable row level security']) assert(mig.includes(s), `Migração sem ${s}`);
 assert(!/drop table|truncate|delete from public\.(equipments|withdrawals)/i.test(mig), 'Migração não pode apagar dados');
 assert(ctl.includes('equipa_save_cart') && ctl.includes('save_equipment_cart_v2'), 'Carrinho deve usar a função nova e cair na antiga');
@@ -65,7 +65,7 @@ assert(app.includes('enableMarquee(qs("#dev-results")'), 'Equipamentos sem sele�
 console.log('Arrasto e página do carrinho aprovados.');
 
 // Etiquetas: impressão em página própria (sem tela branca) e menu do botão direito.
-const lbl = read('assets/js/labels.js');
+const lbl = read('assets/js/tools/labels.js');
 assert(lbl.includes('iframe') && lbl.includes('contentWindow.print') && !app.includes('window.print()'), 'Impressão deve usar página própria, não window.print do app');
 for (const f of ['openContextMenu']) assert(ui.includes(`function ${f}`), `ui sem ${f}`);
 assert(app.includes('deleteDevices') && ctl.includes('deleteCart') && ctl.includes('"contextmenu"'), 'Botão direito sem excluir');

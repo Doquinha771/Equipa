@@ -134,7 +134,7 @@ const EquipaSettings = (() => {
       <div class="toolbar"><div class="segmented segmented-lg" role="tablist">${[["models", "laptop", "Modelos"], ["fields", "list", "Campos dos notes"], ["locations", "pin", "Locais"]].map(([k, ic, l]) => `<button type="button" role="tab" data-st="${k}" class="${s === k ? "on" : ""}">${icon(ic, 16)}<span>${l}</span></button>`).join("")}</div></div>
       <div id="st-body">${loadingState()}</div>`;
     qsa("[data-st]").forEach(b => b.addEventListener("click", () => { state.settingsTab = b.dataset.st; render(++viewGen); }));
-    setTitle("Ajustes", "Como os notes são descritos e organizados na escola");
+    setTitle("Configurações", "Modelos, campos dos equipamentos e locais da escola");
     if (s === "models") return renderModels(gen);
     if (s === "fields") return renderFields();
     return renderLocations();
