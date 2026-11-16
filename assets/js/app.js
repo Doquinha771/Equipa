@@ -105,11 +105,23 @@ function errText(error) {
     EQUIPA_ITEM_NOT_IN_WITHDRAWAL: "Um dos equipamentos não pertence a esta retirada.",
     EQUIPA_WITHDRAWAL_NOT_ACTIVE: "Esta retirada já foi concluída.",
     EQUIPA_REPORT_RANGE_INVALID: "Selecione um intervalo de até 370 dias.",
+    EQUIPA_CART_NUMBER_INVALID: "Informe um número de carrinho válido.",
+    EQUIPA_CART_CAPACITY_INVALID: "As vagas do carrinho devem ficar entre 1 e 200.",
+    EQUIPA_CART_CODES_INVALID: "Informe de 1 a 200 equipamentos para o carrinho.",
+    EQUIPA_CART_OVER_CAPACITY: "Há mais equipamentos do que vagas no carrinho. Aumente as vagas ou retire números.",
+    EQUIPA_CART_NUMBER_TAKEN: "Já existe um carrinho ativo com esse número. Escolha outro número.",
+    EQUIPA_CART_NOT_FOUND: "Carrinho não encontrado. Atualize a página.",
   });
   if (map[code]) return map[code];
+  // Erros com lista de números: EQUIPA_CART_UNKNOWN_CODES:1, 2 / EQUIPA_CART_EQUIPMENT_TAKEN:3, 4
+  const listed = raw.match(/EQUIPA_CART_(UNKNOWN_CODES|EQUIPMENT_TAKEN):\s*([^\n]+)/);
+  if (listed) return listed[1] === "UNKNOWN_CODES" ? `Estes números não estão cadastrados: ${listed[2]}.` : `Estes números já estão em outro carrinho: ${listed[2]}.`;
+  if (/23505|duplicate key/i.test(`${error?.code || ""} ${raw}`)) return `Já existe um registro com esse número ou identificação. (código ${error?.code || "23505"})`;
   if (error?.code || /constraint|permission denied|syntax error|invalid input|does not exist|schema cache/i.test(raw)) {
-    console.warn("Equipa: operação rejeitada pelo servidor", error?.code || "server");
-    return "Não foi possível concluir. Atualize a página e tente novamente ou procure a administração.";
+    console.warn("Equipa: operação rejeitada pelo servidor", error?.code || "server", raw);
+    // Mostra o código técnico para que a administração saiba o que corrigir.
+    const tech = [error?.code, raw.replace(/\s+/g, " ").slice(0, 140)].filter(Boolean).join(" · ");
+    return `Não foi possível concluir. Detalhe técnico: ${tech}`;
   }
   return raw.length > 220 ? "Não foi possível concluir a operação. Tente novamente." : raw;
 }
@@ -298,7 +310,8 @@ const VIEWS = {
   maintenance: { label: "Manutenção", ic: "tool", admin: true },
   reports: { label: "Relatórios", ic: "chart", admin: true },
   users: { label: "Usuários", ic: "users", admin: true },
-  audit: { label: "Auditoria", ic: "shield", admin: true }
+  audit: { label: "Auditoria", ic: "shield", admin: true },
+  settings: { label: "Ajustes", ic: "gear", admin: true }
 };
 let shellMounted = false;
 function mountShell() {
@@ -310,7 +323,7 @@ function mountShell() {
       <div class="side-brand">${brandMark(26)}<div><strong>Equipa</strong><small>E.E. Amador e Catharina</small></div></div>
       <button type="button" class="btn btn-primary side-cam" data-camera>${icon("camera", 19)}<span>Câmera</span></button>
       <nav class="side-nav">${navBtn("home")}${navBtn("devices")}${navBtn("moves")}${navBtn("carts")}
-        ${admin ? `<span class="nav-label">Gestão</span>${navBtn("maintenance")}${navBtn("reports")}${navBtn("users")}${navBtn("audit")}` : ""}</nav>
+        ${admin ? `<span class="nav-label">Gestão</span>${navBtn("maintenance")}${navBtn("reports")}${navBtn("users")}${navBtn("audit")}${navBtn("settings")}` : ""}</nav>
       <div class="side-foot"><div class="me"><span class="avatar">${initial}</span><div><strong>${esc(state.profile?.full_name || "Usuário")}</strong><small>${esc(roleLabel(state.profile?.role))}</small></div></div>
         <div class="side-tools"><button type="button" class="icon-btn" data-theme-toggle></button><button type="button" class="icon-btn" data-logout aria-label="Sair" title="Sair">${icon("logout", 19)}</button></div></div>
     </aside>
@@ -361,7 +374,7 @@ function openMoreSheet() {
   const admin = isAdmin();
   const item = v => `<button type="button" class="menu-item" data-go="${v}">${icon(VIEWS[v].ic, 20)}<span>${VIEWS[v].label}</span>${icon("chevron", 16)}</button>`;
   const m = openSheet({ size: "sm", title: esc(state.profile?.full_name || "Usuário"), subtitle: esc(roleLabel(state.profile?.role)),
-    body: `<div class="menu">${item("carts")}${admin ? item("maintenance") + item("reports") + item("users") + item("audit") : ""}</div>
+    body: `<div class="menu">${item("carts")}${admin ? item("maintenance") + item("reports") + item("users") + item("audit") + item("settings") : ""}</div>
       <div class="menu"><button type="button" class="menu-item" data-theme-toggle="label"></button><button type="button" class="menu-item danger" data-logout>${icon("logout", 20)}<span>Sair da conta</span></button></div>
       <p class="hint center">Equipa ${esc(config.version || "")} · coordenação e 3º A</p>` });
   setTheme(isDark() ? "dark" : "light");
@@ -384,7 +397,7 @@ async function navigate(view) {
   qs("#view").innerHTML = loadingState();
   qs("#selbar")?.remove();
   window.scrollTo({ top: 0, behavior: "instant" });
-  const render = { home: renderHome, devices: renderDevices, moves: renderMoves, carts: renderCarts, maintenance: renderMaintenance, reports: renderReports, users: renderUsers, audit: renderAudit }[view];
+  const render = { home: renderHome, devices: renderDevices, moves: renderMoves, carts: renderCarts, maintenance: renderMaintenance, reports: renderReports, users: renderUsers, audit: renderAudit, settings: EquipaSettings.render }[view];
   try { await render(gen); }
   catch (error) { if (alive(gen)) qs("#view").innerHTML = emptyState("Não foi possível carregar esta tela.", errText(error), "warn"); }
 }
@@ -392,7 +405,7 @@ function setTitle(title, sub = "") { const t = qs("#view-title"), s = qs("#view-
 const refreshView = () => navigate(state.view);
 
 /* ===================== Dados compartilhados ===================== */
-const DEVICE_FIELDS = "id,code,asset_tag,brand,model,label,school_group,serial_number,location_text,status,is_active,updated_at,qr_token";
+const DEVICE_FIELDS = "id,code,asset_tag,brand,model,label,school_group,serial_number,location_text,status,is_active,updated_at,qr_token,operating_system,processor,ram_gb,storage_gb";
 let deviceCache = { at: 0, inactive: null, rows: null, pending: null };
 async function loadDevices({ force = false, inactive = false } = {}) {
   if (!force && deviceCache.rows && deviceCache.inactive === inactive && Date.now() - deviceCache.at < 30000) return deviceCache.rows;
@@ -401,7 +414,7 @@ async function loadDevices({ force = false, inactive = false } = {}) {
   deviceCache.pending = (async () => {
     const rows = [];
     for (let from = 0; from < 10000; from += 1000) {
-      const { data, error } = await supabase.from("equipments").select(DEVICE_FIELDS).eq("is_active", !inactive).order("code").range(from, from + 999);
+      const { data, error } = await supabase.from("equipments").select(DEVICE_FIELDS + (EquipaSettings.hasSpecs() ? ",specs" : "")).eq("is_active", !inactive).order("code").range(from, from + 999);
       if (error) throw error;
       rows.push(...(data || []));
       if ((data || []).length < 1000) break;
@@ -530,6 +543,7 @@ async function renderDevices(gen) {
       </div>
     </div>
     <div class="chips" id="dev-chips" role="group" aria-label="Situação"></div>
+    <div class="chips chips-todo" id="dev-todo" role="group" aria-label="Pendências de organização"></div>
     ${s.inactive ? `<div class="callout">${icon("info", 18)}<span>Mostrando equipamentos <b>fora do catálogo</b> (desativados).</span><button class="link" id="dev-back-active" type="button">Voltar aos ativos</button></div>` : ""}
     <div id="dev-results">${loadingState("Carregando equipamentos…")}</div>`;
   let timer;
@@ -547,10 +561,22 @@ async function renderDevices(gen) {
   let lateIds = new Set();
   try { (await loadOpenWithdrawals()).filter(w => w.overdue).forEach(w => w.pending.forEach(i => lateIds.add(String(i.equipment_id)))); } catch {}
   if (!alive(gen)) return;
-  devicesView = { rows, lateIds };
+  // Mapa número → carrinho, para a pendência "sem carrinho".
+  let cartOf = new Map();
+  try { cartOf = (await loadCartMap()).byCode; } catch {}
+  if (!alive(gen)) return;
+  devicesView = { rows, lateIds, cartOf };
   paintDevices();
 }
-let devicesView = { rows: [], lateIds: new Set() };
+let devicesView = { rows: [], lateIds: new Set(), cartOf: new Map() };
+/** Pendências que atrapalham quem organiza: cada uma vira um filtro com contagem. */
+const DEVICE_TODO = [
+  ["no_cart", "Sem carrinho", d => !devicesView.cartOf.has(norm(d.code))],
+  ["no_place", "Sem local", d => !clean(d.location_text)],
+  ["no_type", "Sem tipo", d => !d.school_group],
+  ["no_os", "Sem plataforma", d => !clean(d.operating_system)],
+  ["no_serial", "Sem série", d => !clean(d.serial_number)]
+];
 function deviceState(d) { return d.status === "in_use" && devicesView.lateIds.has(String(d.id)) ? "overdue" : d.status; }
 function paintDevices() {
   const s = state.devices, host = qs("#dev-results"); if (!host) return;
@@ -559,7 +585,10 @@ function paintDevices() {
   const counts = { "": searched.length }; for (const d of searched) counts[d.status] = (counts[d.status] || 0) + 1;
   qs("#dev-chips").innerHTML = DEVICE_STATUS.map(([v, l]) => `<button type="button" class="chip ${s.status === v ? "on" : ""} ${v ? `chip-${v}` : ""}" data-st="${v}">${l}<b>${counts[v] || 0}</b></button>`).join("");
   qsa("[data-st]").forEach(b => b.addEventListener("click", () => { s.status = b.dataset.st; paintDevices(); }));
-  const rows = s.status ? searched.filter(d => d.status === s.status) : searched;
+  const todo = DEVICE_TODO.find(t => t[0] === s.todo);
+  qs("#dev-todo").innerHTML = `<span class="chips-label">Organizar:</span>${DEVICE_TODO.map(([k, l, fn]) => { const n = searched.filter(fn).length; return n ? `<button type="button" class="chip chip-todo ${s.todo === k ? "on" : ""}" data-todo="${k}">${l}<b>${n}</b></button>` : ""; }).join("") || `<span class="chips-label ok">${icon("check", 14)} cadastro completo</span>`}`;
+  qsa("[data-todo]").forEach(b => b.addEventListener("click", () => { s.todo = s.todo === b.dataset.todo ? "" : b.dataset.todo; paintDevices(); }));
+  const rows = (s.status ? searched.filter(d => d.status === s.status) : searched).filter(d => !todo || todo[2](d));
   setTitle("Equipamentos", `${all.length} no ${s.inactive ? "arquivo" : "inventário"}`);
   if (!all.length) {
     host.innerHTML = isAdmin() && !s.inactive
@@ -665,8 +694,8 @@ function paintDeviceSheet(m, e, holder) {
   const admin = isAdmin();
   const late = holder?.due_at && new Date(holder.due_at).getTime() < Date.now();
   const st = e.status === "in_use" && late ? "overdue" : e.status;
-  const specs = [e.processor, e.ram_gb ? `${e.ram_gb} GB RAM` : "", e.storage_gb ? `${e.storage_gb} GB` : "", e.operating_system].filter(Boolean).join(" · ");
-  const info = [["Modelo", [e.brand !== "Não informado" ? e.brand : "", e.model].filter(Boolean).join(" ")], ["Tipo", schoolGroupLabel(e.school_group)], ["Local", e.location_text], ["Patrimônio", e.asset_tag], ["Nº de série", e.serial_number], ["Nome", e.label], ["Configuração", specs], ["Observações", e.notes], ["Atualizado", dt(e.updated_at)]].filter(([, v]) => v && v !== "—" || false);
+  const specs = [e.operating_system, e.processor, e.ram_gb ? `${e.ram_gb} GB RAM` : "", e.storage_gb ? `${e.storage_gb} GB` : ""].filter(Boolean).join(" · ");
+  const info = [["Modelo", [e.brand !== "Não informado" ? e.brand : "", e.model].filter(Boolean).join(" ")], ["Tipo", schoolGroupLabel(e.school_group)], ["Local", e.location_text], ["Patrimônio", e.asset_tag], ["Nº de série", e.serial_number], ["Nome", e.label], ["Plataforma e configuração", specs], ...EquipaSettings.describe(e.specs), ["Observações", e.notes], ["Atualizado", dt(e.updated_at)]].filter(([, v]) => v && v !== "—" || false);
   const primary = !e.is_active ? "" : e.status === "available" ? `<button class="btn btn-primary btn-lg btn-block" data-act="out" type="button">${icon("out", 20)} Retirar este</button>`
     : e.status === "in_use" ? `<button class="btn btn-primary btn-lg btn-block" data-act="return" type="button">${icon("back", 20)} Registrar devolução</button>`
     : e.status === "maintenance" && admin ? `<button class="btn btn-primary btn-lg btn-block" data-act="fix" type="button">${icon("check", 20)} Concluir manutenção</button>` : "";
@@ -700,38 +729,47 @@ function paintDeviceSheet(m, e, holder) {
 async function openDeviceEdit(e, m, holder) {
   const models = await knownModels();
   const statusOk = ["available", "unavailable"].includes(e.status);
+  const devs = await loadDevices().catch(() => []);
   setSheet(m, { title: `Editar Nº ${esc(e.code)}`, subtitle: "Só número e modelo são obrigatórios.",
-    body: `<form id="edit-form" class="form">
-      <div class="grid-2"><label class="field"><span>Número *</span><input name="code" required maxlength="80" value="${esc(e.code)}" autocomplete="off"></label>
-      <label class="field"><span>Modelo *</span><input name="model" required maxlength="120" value="${esc(e.model)}" list="model-list" autocomplete="off"></label></div>
+    body: `<form id="edit-form" class="form" autocomplete="off">
+      <div class="grid-2"><label class="field"><span>Número *</span><input name="code" required maxlength="80" value="${esc(e.code)}"></label>
+      <label class="field"><span>Modelo *</span><input name="model" required maxlength="120" value="${esc(e.model)}" list="model-list"></label></div>
       <datalist id="model-list">${models.map(x => `<option value="${esc(x.name)}">`).join("")}</datalist>
-      <div class="grid-2"><label class="field"><span>Tipo</span><select name="school_group">${groupOptions(e.school_group || "")}</select></label>
-      <label class="field"><span>Local</span><input name="location_text" maxlength="160" value="${esc(e.location_text || "")}" placeholder="Ex.: Sala 12, Carrinho 3"></label></div>
-      ${statusOk ? `<label class="field"><span>Situação</span><div class="segmented"><label><input type="radio" name="status" value="available" ${e.status === "available" ? "checked" : ""}><span>Disponível</span></label><label><input type="radio" name="status" value="unavailable" ${e.status === "unavailable" ? "checked" : ""}><span>Indisponível</span></label></div></label>` : `<p class="hint">${icon("info", 15)} ${e.status === "in_use" ? "Em uso: registre a devolução para mudar a situação." : "Em manutenção: conclua a manutenção para mudar a situação."}</p>`}
-      <details class="more"><summary>Mais detalhes (opcional)</summary><div class="grid-2">
-        <label class="field"><span>Fabricante</span><input name="brand" maxlength="100" value="${esc(e.brand && e.brand !== "Não informado" ? e.brand : "")}" placeholder="Ex.: Positivo"></label>
+      <p class="hint" id="edit-inherit"></p>
+      <label class="field"><span>Local</span><input name="location_text" maxlength="160" value="${esc(e.location_text || "")}" placeholder="Ex.: Sala 12" list="edit-locs"></label>
+      ${EquipaSettings.locationDatalist("edit-locs", devs.map(d => d.location_text))}
+      ${statusOk ? `<fieldset class="field"><legend>Situação</legend><div class="segmented"><label><input type="radio" name="status" value="available" ${e.status === "available" ? "checked" : ""}><span>Disponível</span></label><label><input type="radio" name="status" value="unavailable" ${e.status === "unavailable" ? "checked" : ""}><span>Indisponível</span></label></div></fieldset>` : `<p class="hint">${icon("info", 15)} ${e.status === "in_use" ? "Em uso: registre a devolução para mudar a situação." : "Em manutenção: conclua a manutenção para mudar a situação."}</p>`}
+      <details class="more" open><summary>Detalhes do note</summary>${EquipaSettings.specInputs({ ...e, brand: e.brand === "Não informado" ? "" : e.brand, specs: e.specs || {} })}</details>
+      <details class="more"><summary>Identificação e observações</summary><div class="grid-2">
         <label class="field"><span>Patrimônio</span><input name="asset_tag" maxlength="80" value="${esc(e.asset_tag || "")}"></label>
         <label class="field"><span>Nº de série</span><input name="serial_number" maxlength="120" value="${esc(e.serial_number || "")}"></label>
-        <label class="field"><span>Nome (opcional)</span><input name="label" maxlength="120" value="${esc(e.label || "")}"></label>
-        <label class="field"><span>Processador</span><input name="processor" maxlength="120" value="${esc(e.processor || "")}"></label>
-        <label class="field"><span>Sistema</span><input name="operating_system" maxlength="120" value="${esc(e.operating_system || "")}"></label>
-        <label class="field"><span>RAM (GB)</span><input name="ram_gb" type="number" min="1" max="1024" value="${esc(e.ram_gb ?? "")}"></label>
-        <label class="field"><span>Armazenamento (GB)</span><input name="storage_gb" type="number" min="1" max="1048576" value="${esc(e.storage_gb ?? "")}"></label>
-      </div><label class="field"><span>Observações</span><textarea name="notes" maxlength="1200" rows="3">${esc(e.notes || "")}</textarea></label>
-      <label class="check"><input name="is_active" type="checkbox" ${e.is_active !== false ? "checked" : ""}><span>Ativo no catálogo</span></label></details>
+        <label class="field"><span>Nome (opcional)</span><input name="label" maxlength="120" value="${esc(e.label || "")}"></label></div>
+        <label class="field"><span>Observações</span><textarea name="notes" maxlength="1200" rows="3">${esc(e.notes || "")}</textarea></label>
+        <label class="check"><input name="is_active" type="checkbox" ${e.is_active !== false ? "checked" : ""}><span>Ativo no catálogo</span></label></details>
     </form>`,
     foot: `<button class="btn" type="button" id="edit-cancel">Cancelar</button><button class="btn btn-primary" type="submit" form="edit-form">Salvar</button>` });
   const form = qs("#edit-form", m);
-  form.elements.model.addEventListener("change", () => { const g = guessGroup(form.elements.model.value) || models.find(x => norm(x.name) === norm(form.elements.model.value))?.group; if (g && !form.elements.school_group.value) form.elements.school_group.value = g; });
+  // Trocar o modelo oferece os dados herdados do novo modelo (sem apagar o que já foi digitado).
+  form.elements.model.addEventListener("change", async () => {
+    if (norm(form.elements.model.value) === norm(e.model)) { qs("#edit-inherit", m).textContent = ""; return; }
+    const h = await EquipaSettings.inherit(form.elements.model.value);
+    const sum = EquipaSettings.inheritSummary(h);
+    qs("#edit-inherit", m).innerHTML = sum ? `${icon("layers", 14)} Este modelo tem: ${esc(sum)} <button type="button" class="link" id="edit-apply">Usar estes dados</button>` : "";
+    qs("#edit-apply", m)?.addEventListener("click", () => {
+      for (const k of ["brand", "school_group", "operating_system", "processor", "ram_gb", "storage_gb"]) if (h[k]) form.elements[k].value = h[k];
+      for (const [k, v] of Object.entries(h.specs || {})) if (form.elements[`spec_${k}`]) form.elements[`spec_${k}`].value = v;
+      qs("#edit-inherit", m).textContent = "Dados do modelo aplicados. Confira e salve.";
+    });
+  });
   qs("#edit-cancel", m).addEventListener("click", () => paintDeviceSheet(m, e, holder));
   form.addEventListener("submit", async ev => {
     ev.preventDefault();
     const f = new FormData(form), b = qs('.sheet-foot [type="submit"]', m);
-    const num = k => f.get(k) ? Number(f.get(k)) : null;
-    const payload = { code: clean(f.get("code")), model: clean(f.get("model")), school_group: f.get("school_group") || null, location_text: clean(f.get("location_text")) || null,
-      brand: clean(f.get("brand")) || "Não informado", asset_tag: clean(f.get("asset_tag")) || null, serial_number: clean(f.get("serial_number")) || null, label: clean(f.get("label")) || null,
-      processor: clean(f.get("processor")) || null, operating_system: clean(f.get("operating_system")) || null, ram_gb: num("ram_gb"), storage_gb: num("storage_gb"),
-      notes: clean(f.get("notes")) || null, is_active: f.get("is_active") === "on" };
+    const sp = EquipaSettings.readSpecInputs(form);
+    const payload = { code: clean(f.get("code")), model: clean(f.get("model")), location_text: clean(f.get("location_text")) || null,
+      asset_tag: clean(f.get("asset_tag")) || null, serial_number: clean(f.get("serial_number")) || null, label: clean(f.get("label")) || null,
+      notes: clean(f.get("notes")) || null, is_active: f.get("is_active") === "on", ...EquipaSettings.toEquipmentColumns(sp) };
+    if (payload.specs) payload.specs = { ...(e.specs || {}), ...payload.specs };
     if (statusOk && f.get("status")) payload.status = f.get("status");
     if (!payload.code || !payload.model) return form.reportValidity();
     setBusy(b, true, "Salvando…");
@@ -749,14 +787,16 @@ async function openDeviceEdit(e, m, holder) {
 async function openBulkEdit(list) {
   if (!isAdmin() || !list.length) return;
   const models = await knownModels();
+  const devs = await loadDevices().catch(() => []);
   const same = k => list.every(d => (d[k] || "") === (list[0][k] || "")) ? (list[0][k] || "") : "";
+  const keep = "Manter como está";
   const m = openSheet({ size: "md", title: `Editar ${list.length} equipamento${list.length === 1 ? "" : "s"}`, subtitle: `Nº ${esc(list.slice(0, 6).map(d => d.code).join(", "))}${list.length > 6 ? "…" : ""}. Campos vazios não mudam.`,
-    body: `<form id="bulk-form" class="form">
-      <label class="field"><span>Modelo</span><input name="model" maxlength="120" list="bulk-models" value="${esc(same("model"))}" placeholder="Manter como está" autocomplete="off"></label>
+    body: `<form id="bulk-form" class="form" autocomplete="off">
+      <label class="field"><span>Modelo</span><input name="model" maxlength="120" list="bulk-models" value="${esc(same("model"))}" placeholder="${keep}"></label>
       <datalist id="bulk-models">${models.map(x => `<option value="${esc(x.name)}">`).join("")}</datalist>
-      <div class="grid-2"><label class="field"><span>Tipo</span><select name="school_group">${groupOptions(same("school_group"), "Manter como está")}</select></label>
-      <label class="field"><span>Fabricante</span><input name="brand" maxlength="100" value="${esc(same("brand") === "Não informado" ? "" : same("brand"))}" placeholder="Manter como está"></label></div>
-      <label class="field"><span>Local</span><input name="location_text" maxlength="160" value="${esc(same("location_text"))}" placeholder="Manter como está"></label>
+      <label class="field"><span>Local</span><input name="location_text" maxlength="160" value="${esc(same("location_text"))}" placeholder="${keep}" list="bulk-locs"></label>
+      ${EquipaSettings.locationDatalist("bulk-locs", devs.map(d => d.location_text))}
+      <details class="more" open><summary>Detalhes dos notes</summary>${EquipaSettings.specInputs({}, { keepPlaceholder: keep })}</details>
       <details class="more"><summary>Renumerar em sequência</summary><p class="hint">Troca os números na ordem atual (${esc(list[0].code)} → …). Útil quando o lote foi cadastrado com o número errado.</p>
         <div class="grid-2"><label class="field"><span>Prefixo</span><input name="prefix" maxlength="30" placeholder="Opcional"></label><label class="field"><span>Começar em</span><input name="start" inputmode="numeric" pattern="[0-9]{1,8}" maxlength="8" placeholder="Ex.: 31"></label></div></details>
     </form>`,
@@ -765,17 +805,25 @@ async function openBulkEdit(list) {
   form.addEventListener("submit", async ev => {
     ev.preventDefault();
     const f = new FormData(form), b = qs('.sheet-foot [type="submit"]', m);
-    const payload = {};
-    for (const k of ["model", "school_group", "brand", "location_text"]) { const v = clean(f.get(k)); if (v) payload[k] = v; }
+    const sp = EquipaSettings.readSpecInputs(form, { onlyFilled: true });
+    const specsPatch = sp.specs; delete sp.specs;
+    const payload = EquipaSettings.toEquipmentColumns(sp);
+    if (!sp.brand) delete payload.brand;
+    for (const k of ["model", "location_text"]) { const v = clean(f.get(k)); if (v) payload[k] = v; }
     if (payload.model && !payload.school_group) { const g = guessGroup(payload.model) || models.find(x => norm(x.name) === norm(payload.model))?.group; if (g) payload.school_group = g; }
     const start = clean(f.get("start")), prefix = clean(f.get("prefix"));
     if (start && !/^\d{1,8}$/.test(start)) return notify("O número inicial deve conter só dígitos.", "warning");
-    if (!Object.keys(payload).length && !start) return notify("Preencha ao menos um campo para aplicar.", "warning");
+    if (!Object.keys(payload).length && !specsPatch && !start) return notify("Preencha ao menos um campo para aplicar.", "warning");
     setBusy(b, true, "Aplicando…");
     try {
       const ids = list.map(d => d.id);
       if (Object.keys(payload).length) {
         for (let i = 0; i < ids.length; i += 100) { const { error } = await supabase.from("equipments").update(payload).in("id", ids.slice(i, i + 100)); if (error) throw error; }
+      }
+      // Campos personalizados: mescla com o que cada note já tem (não apaga os outros campos).
+      if (specsPatch && EquipaSettings.hasSpecs()) {
+        const inBatches = async (arr, fn) => { for (let i = 0; i < arr.length; i += 10) { const res = await Promise.all(arr.slice(i, i + 10).map(fn)); const bad = res.find(r => r.error); if (bad) throw bad.error; } };
+        await inBatches(list, d => supabase.from("equipments").update({ specs: { ...(d.specs || {}), ...specsPatch } }).eq("id", d.id));
       }
       if (start) {
         const sorted = [...list].sort((a, c) => numSort(a.code, c.code));
@@ -786,7 +834,7 @@ async function openBulkEdit(list) {
         const clash = (taken || []).filter(c => !own.has(norm(c)));
         if (clash.length) throw new Error(`Os números ${clash.slice(0, 5).join(", ")} já pertencem a outros equipamentos.`);
         // Duas passagens evitam colisão temporária entre números do próprio grupo.
-        const inBatches = async (list, fn) => { for (let i = 0; i < list.length; i += 10) { const res = await Promise.all(list.slice(i, i + 10).map(fn)); const bad = res.find(r => r.error); if (bad) throw bad.error; } };
+        const inBatches = async (arr, fn) => { for (let i = 0; i < arr.length; i += 10) { const res = await Promise.all(arr.slice(i, i + 10).map(fn)); const bad = res.find(r => r.error); if (bad) throw bad.error; } };
         await inBatches(sorted, d => supabase.from("equipments").update({ code: `__tmp_${d.id.slice(0, 8)}` }).eq("id", d.id));
         await inBatches(sorted.map((d, i) => [d, codes[i]]), ([d, code]) => supabase.from("equipments").update({ code }).eq("id", d.id));
       }
@@ -1054,6 +1102,7 @@ async function initSession(session) {
   if (accessError) throw accessError;
   if (allowed !== true) { renderPendingApproval(); window.__equipaBootReady?.(); return; }
   if (!(await ensureLegalAcceptance())) { window.__equipaBootReady?.(); return; }
+  await EquipaSettings.load(true).catch(() => {});
   deviceCache = { at: 0, inactive: null, rows: null, pending: null }; modelCache.at = 0; noticeCache.at = 0;
   mountShell();
   const handled = await withTimeout(handleScanAfterLogin(), STARTUP_TIMEOUT_MS, "QR Code inicial").catch(() => false);

@@ -172,7 +172,7 @@ async function openCounter(pre = [], { step = "pick" } = {}) {
   try {
     [devices, carts] = await Promise.all([loadDevices({ force: true }), loadCartMap().catch(() => ({ carts: [], byCode: new Map() }))]);
     const { data } = await supabase.from("withdrawals").select("class_name,destination").order("created_at", { ascending: false }).limit(60);
-    recent = { classes: [...new Set((data || []).map(x => x.class_name).filter(Boolean))].slice(0, 12), places: [...new Set((data || []).map(x => x.destination).filter(Boolean))].slice(0, 12) };
+    recent = { classes: [...new Set((data || []).map(x => x.class_name).filter(Boolean))].slice(0, 12), places: EquipaSettings.locationList((data || []).map(x => x.destination)).slice(0, 80) };
   } catch (error) { if (m.isConnected) setSheet(m, { body: emptyState("Não foi possível carregar.", errText(error), "warn") }); return; }
   if (!m.isConnected) return;
   const free = devices.filter(d => d.status === "available");
@@ -302,6 +302,22 @@ function openReturnCamera() {
     return { ok: true, text: `Nº ${d.code} recebido` };
   }, onClose: () => { if (["home", "moves", "devices", "carts"].includes(state.view)) refreshView(); } });
 }
+/** Depois de receber com avaria: abre a manutenção de cada equipamento sem precisar procurar. */
+function offerMaintenance(items, withdrawalId) {
+  const m = openSheet({ size: "sm", title: "Abrir manutenção?", subtitle: "Recebido com avaria: " + items.map(i => "Nº " + (i.equipments?.code || "?")).join(", "),
+    body: '<form id="om-form" class="form"><label class="field"><span>O que aconteceu? *</span><input name="title" required maxlength="160" value="Avaria na devolução (comanda #' + esc(withdrawalId) + ')"></label><label class="field"><span>Observações</span><textarea name="notes" maxlength="1200" rows="2"></textarea></label></form>',
+    foot: '<button class="btn" type="button" data-close>Agora não</button><button class="btn btn-primary" type="submit" form="om-form">Abrir manutenção</button>' });
+  qs("#om-form", m).addEventListener("submit", async e => {
+    e.preventDefault(); const f = new FormData(e.currentTarget), b = qs('.sheet-foot [type="submit"]', m); setBusy(b, true, "Abrindo…");
+    let ok = 0, fail = 0;
+    for (const i of items) {
+      const { error } = await supabase.rpc("open_maintenance", { p_equipment_id: i.equipment_id, p_title: clean(f.get("title")), p_notes: clean(f.get("notes")) || null, p_client_action_id: uid() });
+      if (error && !/MAINTENANCE_ALREADY_OPEN/.test(error.message || "")) fail++; else ok++;
+    }
+    setBusy(b, false); m.close(); invalidateData();
+    notify(fail ? ok + " em manutenção, " + fail + " não foi possível." : ok + " equipamento(s) em manutenção.", fail ? "warning" : "success");
+  });
+}
 function withdrawalRow(w) {
   const n = w.pending.length || (w.withdrawal_items || []).length;
   const codes = w.pending.map(i => i.equipments?.code).filter(Boolean).sort(numSort);
@@ -317,6 +333,10 @@ async function openWithdrawal(id, { receiveAll = false } = {}) {
   if (!m.isConnected) return;
   if (we || ie) { setSheet(m, { body: emptyState("Não foi possível abrir.", errText(we || ie), "warn") }); return; }
   const list = (items || []).sort((a, b) => numSort(a.equipments?.code, b.equipments?.code));
+  const carts = await loadCartMap().catch(() => ({ byCode: new Map() }));
+  const homeOf = new Map();
+  for (const i of list) { const c = carts.byCode.get(norm(i.equipments?.code)); const k = c ? cartName(c) : "Sem carrinho"; if (!homeOf.has(k)) homeOf.set(k, []); homeOf.get(k).push(i.equipments?.code || "?"); }
+  const homeLine = [...homeOf].map(([k, v]) => k + " (Nº " + v.join(", ") + ")").join(" · ");
   const pending = list.filter(x => !x.returned_at);
   const states = ["pending", "returned", "damaged", "missing"], label = { pending: "fora", returned: "recebido", damaged: "avaria", missing: "não achado" };
   const mark = new Map(pending.map(i => [String(i.equipment_id), receiveAll || pending.length === 1 ? "returned" : "pending"]));
@@ -328,6 +348,7 @@ async function openWithdrawal(id, { receiveAll = false } = {}) {
     setSheet(m, { title: `Comanda #${esc(id)} · ${esc(who)}`, subtitle: `${w.custodian_role ? esc(roleLabel(w.custodian_role)) + " · " : ""}${w.custody_mode === "delegate" ? "identidade declarada" : w.custody_mode === "self" ? "conta autenticada" : "registro antigo"}`,
       body: `${late ? `<div class="callout callout-danger">${icon("clock", 18)}<span><b>Atrasada há ${span(mins)}</b> — prazo era ${esc(dt(w.due_at))}.</span></div>` : ""}
         ${pending.length ? `<div class="section-head"><h3>Toque em cada número que voltou</h3>${pending.length > 1 ? `<button type="button" class="btn btn-sm" id="rt-all">${icon("check", 15)} Todos voltaram</button>` : ""}</div>` : ""}
+        ${pending.length ? `<p class="hint">${icon("cart", 14)} Guardar em: ${esc(homeLine)}</p>` : ""}
         <div class="slots slots-lg">${list.map(i => { const st = i.returned_at ? (i.return_condition === "damaged" ? "damaged" : "returned") : mark.get(String(i.equipment_id)); return `<button type="button" class="slot r-${st} ${i.returned_at ? "locked" : ""}" data-r="${esc(i.equipment_id)}" ${i.returned_at ? "disabled" : ""}>${icon("laptop", 24)}<span>${esc(i.equipments?.code || "?")}</span><small>${i.returned_at ? `${label[st]} ${esc(hhmm(i.returned_at))}` : label[st]}</small></button>`; }).join("")}</div>
         ${pending.length > 0 ? `<p class="hint">${icon("info", 14)} Toque de novo para marcar <b>avaria</b> ou <b>não achado</b>. O que ficar “fora” continua na comanda.</p>` : ""}
         <dl class="info">${facts.filter(([, v]) => v).map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>`,
@@ -347,6 +368,8 @@ async function openWithdrawal(id, { receiveAll = false } = {}) {
     invalidateData();
     notify(data?.complete ? `Comanda #${id} encerrada.` : `${data?.pending ?? "?"} ainda fora.`, "success");
     m.close(); if (["home", "moves", "devices", "carts"].includes(state.view)) refreshView();
+    const damaged = list.filter(i => mark.get(String(i.equipment_id)) === "damaged");
+    if (damaged.length && isAdmin()) offerMaintenance(damaged, id);
   };
   paint();
 }
@@ -427,25 +450,69 @@ async function openCart(token) {
   paint();
 }
 async function openCartForm(rec = null) {
-  const m = openSheet({ size: "md", title: rec ? "Editar carrinho" : "Novo carrinho", subtitle: "Diga quais números ficam guardados nele.",
-    body: `<form id="cart-form" class="form"><div class="grid-2"><label class="field"><span>Número do carrinho *</span><input name="number" type="number" min="1" required value="${esc(rec?.number || "")}" placeholder="1"></label><label class="field"><span>Nome</span><input name="name" maxlength="120" value="${esc(rec?.name || "")}" placeholder="Ex.: Carrinho azul"></label>
-      <label class="field"><span>Onde fica</span><input name="location_text" maxlength="160" value="${esc(rec?.location_text || "")}" placeholder="Ex.: Sala maker"></label><label class="field"><span>Vagas</span><input name="capacity" type="number" min="1" max="200" value="${esc(rec?.capacity || "")}" placeholder="30"></label></div>
+  const editing = !!rec?.id;
+  const [devices, map] = await Promise.all([loadDevices().catch(() => []), loadCartMap().catch(() => ({ carts: [], byCode: new Map() }))]);
+  const nextNumber = Math.max(0, ...map.carts.map(c => Number(c.cart_number) || 0)) + 1;
+  const m = openSheet({ size: "md", title: editing ? "Editar carrinho" : "Novo carrinho", subtitle: "Diga quais números ficam guardados nele.",
+    body: `<form id="cart-form" class="form" autocomplete="off"><div class="grid-2"><label class="field"><span>Número do carrinho *</span><input name="number" type="number" min="1" required value="${esc(rec?.number || nextNumber)}"></label><label class="field"><span>Nome</span><input name="name" maxlength="120" value="${esc(rec?.name || "")}" placeholder="Ex.: Carrinho azul"></label>
+      <label class="field"><span>Onde fica</span><input name="location_text" maxlength="160" value="${esc(rec?.location_text || "")}" placeholder="Ex.: Sala maker" list="cart-locs"></label><label class="field"><span>Vagas</span><input name="capacity" type="number" min="1" max="200" value="${esc(rec?.capacity || "")}" placeholder="Automático"></label></div>
+      ${EquipaSettings.locationDatalist("cart-locs", devices.map(d => d.location_text))}
       <label class="field"><span>Números dos equipamentos *</span><textarea name="codes" required rows="3" placeholder="1-30  ou  1, 2, 3">${esc(compactCodes(rec?.equipment_codes || []))}</textarea><small class="hint">Aceita intervalos: “1-30” vira 1, 2, … 30. Vários: “1-15, TP-01-TP-05”.</small></label>
+      <div class="preview" id="cart-check" aria-live="polite"></div>
+      <label class="check" id="cart-move-wrap" hidden><input type="checkbox" name="move"><span>Tirar estes equipamentos do outro carrinho e colocar neste</span></label>
+      <label class="check"><input type="checkbox" name="set_location" checked><span>Atualizar o local dos equipamentos para o local do carrinho</span></label>
       <label class="field"><span>Observações</span><textarea name="notes" maxlength="1200" rows="2">${esc(rec?.notes || "")}</textarea></label></form>`,
-    foot: `${rec?.id ? `<button class="btn btn-ghost danger" type="button" id="cart-off">Desativar</button>` : ""}<button class="btn" type="button" data-close>Cancelar</button><button class="btn btn-primary" type="submit" form="cart-form">Salvar</button>` });
+    foot: `${editing ? `<button class="btn btn-ghost danger" type="button" id="cart-off">Desativar</button>` : ""}<button class="btn" type="button" data-close>Cancelar</button><button class="btn btn-primary" type="submit" form="cart-form">Salvar</button>` });
+  const form = qs("#cart-form", m), check = qs("#cart-check", m);
+  const byCode = new Map(devices.map(d => [norm(d.code), d]));
+  // Confere tudo antes de enviar: número do carrinho, números inexistentes e equipamentos em outro carrinho.
+  const analyse = () => {
+    const codes = expandCodes(form.elements.codes.value), number = Number(form.elements.number.value);
+    const missing = codes.filter(c => !byCode.has(norm(c)));
+    const taken = codes.filter(c => { const c2 = map.byCode.get(norm(c)); return c2 && String(c2.cart_id) !== String(rec?.id ?? ""); });
+    const numberTaken = map.carts.find(c => Number(c.cart_number) === number && String(c.cart_id) !== String(rec?.id ?? ""));
+    const cap = Number(form.elements.capacity.value) || 0;
+    const msgs = [];
+    if (numberTaken) msgs.push(`O número ${number} já é do “${esc(cartName(numberTaken))}”. Use ${nextNumber}.`);
+    if (missing.length) msgs.push(`Não cadastrados: <b>${esc(missing.slice(0, 12).join(", "))}${missing.length > 12 ? "…" : ""}</b>. Cadastre antes ou corrija.`);
+    if (taken.length) msgs.push(`Já estão em outro carrinho: <b>${esc(taken.slice(0, 12).join(", "))}${taken.length > 12 ? "…" : ""}</b>.`);
+    if (cap && codes.length > cap) msgs.push(`São ${codes.length} equipamentos para ${cap} vagas.`);
+    check.innerHTML = codes.length ? `<div class="preview-head"><b>${codes.length - missing.length} equipamento(s) no carrinho</b></div>${msgs.length ? `<div class="callout callout-warn">${icon("warn", 16)}<span>${msgs.join("<br>")}</span></div>` : ""}` : "";
+    qs("#cart-move-wrap", m).hidden = !taken.length;
+    return { codes, missing, taken, numberTaken, cap };
+  };
+  form.addEventListener("input", analyse); analyse();
   qs("#cart-off", m)?.addEventListener("click", async () => {
-    if (!await confirmAction({ title: "Desativar carrinho?", message: "Ele sai da operação; o histórico fica guardado.", confirmText: "Desativar", danger: true })) return;
+    if (!await confirmAction({ title: "Desativar carrinho?", message: "Ele sai da operação; o histórico fica guardado. O número pode ser reaproveitado depois.", confirmText: "Desativar", danger: true })) return;
     const { error } = await supabase.from("equipment_carts").update({ is_active: false }).eq("id", Number(rec.id));
     if (error) return notify(errText(error), "error"); notify("Carrinho desativado.", "success"); m.close(); cartMapCache.at = 0; refreshView();
   });
-  qs("#cart-form", m).addEventListener("submit", async e => {
-    e.preventDefault(); const f = new FormData(e.currentTarget), b = qs('.sheet-foot [type="submit"]', m);
-    const codes = expandCodes(String(f.get("codes") || ""));
-    if (!codes.length) return notify("Informe os números dos equipamentos.", "warning");
+  form.addEventListener("submit", async e => {
+    e.preventDefault(); const f = new FormData(form), b = qs('.sheet-foot [type="submit"]', m);
+    const a = analyse();
+    if (!a.codes.length) return notify("Informe os números dos equipamentos.", "warning");
+    if (a.numberTaken) return notify("Esse número de carrinho já está em uso.", "warning");
+    if (a.missing.length) return notify("Há números que não estão cadastrados.", "warning");
+    if (a.taken.length && !form.elements.move.checked) return notify("Marque a opção de tirar do outro carrinho, ou remova esses números.", "warning");
+    if (a.cap && a.codes.length > a.cap) return notify("Mais equipamentos do que vagas.", "warning");
+    const args = { p_cart_id: editing ? Number(rec.id) : null, p_number: Number(f.get("number")), p_name: clean(f.get("name")) || null, p_equipment_codes: a.codes, p_location_text: clean(f.get("location_text")) || null, p_capacity: f.get("capacity") ? Number(f.get("capacity")) : null, p_notes: clean(f.get("notes")) || null };
     setBusy(b, true, "Salvando…");
-    const { error } = await supabase.rpc("save_equipment_cart_v2", { p_cart_id: rec?.id ? Number(rec.id) : null, p_number: Number(f.get("number")), p_name: clean(f.get("name")) || null, p_equipment_codes: codes, p_location_text: clean(f.get("location_text")) || null, p_capacity: f.get("capacity") ? Number(f.get("capacity")) : null, p_notes: clean(f.get("notes")) || null });
-    setBusy(b, false); if (error) return notify(errText(error), "error");
-    notify(rec ? "Carrinho atualizado." : "Carrinho criado.", "success"); m.close(); cartMapCache.at = 0; if (state.view === "carts") refreshView();
+    try {
+      let res = await supabase.rpc("equipa_save_cart", { ...args, p_move: !!form.elements.move.checked });
+      // Banco sem a migração 1.0: usa a função antiga (sem mover entre carrinhos).
+      if (res.error && /PGRST202|42883|could not find the function/i.test(`${res.error.code} ${res.error.message}`)) {
+        if (a.taken.length) throw new Error("Para mover equipamentos entre carrinhos, aplique a migração 1.0 no Supabase.");
+        res = await supabase.rpc("save_equipment_cart_v2", args);
+      }
+      if (res.error) throw res.error;
+      if (f.get("set_location") && args.p_location_text) {
+        const ids = a.codes.map(c => byCode.get(norm(c))?.id).filter(Boolean);
+        for (let i = 0; i < ids.length; i += 100) await supabase.from("equipments").update({ location_text: args.p_location_text }).in("id", ids.slice(i, i + 100));
+      }
+      notify(editing ? "Carrinho atualizado." : res.data?.reused ? "Carrinho reativado com o mesmo número e QR." : "Carrinho criado.", "success");
+      m.close(); cartMapCache.at = 0; invalidateData(); if (state.view === "carts") refreshView();
+    } catch (error) { notify(error.message && !error.code ? error.message : errText(error), "error"); }
+    finally { setBusy(b, false); }
   });
 }
 /** "1-30, 35, NOTE-01-NOTE-05" → lista de números sem repetição. */
@@ -477,7 +544,7 @@ async function exportEquipments() {
   try {
     await ensureXLSXLib();
     const all = [];
-    for (let from = 0; from < 10000; from += 1000) { const { data, error } = await supabase.from("equipments").select("id,code,asset_tag,brand,model,school_group,serial_number,location_text,status,is_active,updated_at").order("code").range(from, from + 999); if (error) throw error; all.push(...(data || [])); if ((data || []).length < 1000) break; }
+    for (let from = 0; from < 10000; from += 1000) { const { data, error } = await supabase.from("equipments").select("id,code,asset_tag,brand,model,school_group,serial_number,location_text,status,is_active,updated_at,operating_system,processor,ram_gb,storage_gb" + (EquipaSettings.hasSpecs() ? ",specs" : "")).order("code").range(from, from + 999); if (error) throw error; all.push(...(data || [])); if ((data || []).length < 1000) break; }
     const [map, ws, occ] = await Promise.all([loadCartMap(true).catch(() => ({ byCode: new Map() })), loadOpenWithdrawals().catch(() => []), isAdmin() ? [] : loadOccupancy().catch(() => [])]);
     const holder = new Map();
     ws.forEach(w => w.pending.forEach(i => holder.set(String(i.equipment_id), { name: w.custodian_name || w.responsible_name || "", turma: w.class_name || "", destino: w.destination || "", due: w.due_at, late: w.overdue, id: w.id })));
@@ -485,11 +552,12 @@ async function exportEquipments() {
     const rows = all.sort((a, b) => numSort(a.code, b.code)).map(e => {
       const c = map.byCode.get(norm(e.code)), h = e.status === "in_use" ? holder.get(String(e.id)) : null;
       const where = !e.is_active ? "Fora do catálogo" : h ? `Com ${h.name || "não identificado"}${h.destino ? ` — ${h.destino}` : ""}` : e.status === "maintenance" ? "Manutenção" : c ? `${cartName(c)}${c.location_text ? ` (${c.location_text})` : ""}` : e.location_text || "Não informado";
-      return { "Número": e.code, "Modelo": e.model, "Tipo": schoolGroupLabel(e.school_group), "Carrinho": cartName(c), "Onde está agora": where, "Situação": !e.is_active ? "Desativado" : h?.late ? "Atrasado" : statusLabel(e.status), "Com quem": h?.name || "", "Turma/setor": h?.turma || "", "Destino": h?.destino || "", "Devolver até": h?.due ? dt(h.due) : "", "Comanda": h?.id ? `#${h.id}` : "", "Local cadastrado": e.location_text || "", "Nº de série": e.serial_number || "", "Patrimônio": e.asset_tag || "", "Marca": e.brand && e.brand !== "Não informado" ? e.brand : "", "Atualizado": dt(e.updated_at) };
+      return { "Número": e.code, "Modelo": e.model, "Tipo": schoolGroupLabel(e.school_group), "Carrinho": cartName(c), "Onde está agora": where, "Situação": !e.is_active ? "Desativado" : h?.late ? "Atrasado" : statusLabel(e.status), "Com quem": h?.name || "", "Turma/setor": h?.turma || "", "Destino": h?.destino || "", "Devolver até": h?.due ? dt(h.due) : "", "Comanda": h?.id ? `#${h.id}` : "", "Local cadastrado": e.location_text || "", "Nº de série": e.serial_number || "", "Patrimônio": e.asset_tag || "", "Marca": e.brand && e.brand !== "Não informado" ? e.brand : "", "Plataforma": e.operating_system || "", "Processador": e.processor || "", "RAM (GB)": e.ram_gb || "", "Armazenamento (GB)": e.storage_gb || "", ...Object.fromEntries(EquipaSettings.fields().map(f => [f.label, e.specs?.[f.key] || ""])), "Atualizado": dt(e.updated_at) };
     });
     const sheet = window.XLSX.utils.json_to_sheet(rows);
-    sheet["!cols"] = [8, 26, 16, 16, 34, 12, 24, 12, 18, 16, 9, 18, 18, 14, 12, 16].map(w => ({ wch: w }));
-    sheet["!autofilter"] = { ref: `A1:P${rows.length + 1}` };
+    const headers = Object.keys(rows[0] || {});
+    sheet["!cols"] = headers.map(h => ({ wch: Math.min(34, Math.max(9, h.length + 2, ...rows.slice(0, 200).map(r => String(r[h] ?? "").length + 1))) }));
+    if (headers.length) sheet["!autofilter"] = { ref: `A1:${window.XLSX.utils.encode_col(headers.length - 1)}${rows.length + 1}` };
     const wb = window.XLSX.utils.book_new(); window.XLSX.utils.book_append_sheet(wb, sheet, "Equipamentos");
     // Uma aba por carrinho, para impressão rápida na conferência.
     (map.carts || []).forEach(c => { const set = new Set((c.equipment_codes || []).map(norm)); const part = rows.filter(r => set.has(norm(r["Número"]))).map(r => ({ "Número": r["Número"], "Modelo": r["Modelo"], "Situação": r["Situação"], "Com quem": r["Com quem"], "Conferido": "" })); if (part.length) window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(part), safeFileName(cartName(c)).slice(0, 31)); });

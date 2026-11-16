@@ -6,7 +6,7 @@ const html = read('index.html'), app = read('assets/js/app.js'), ui = read('asse
 const reg = read('assets/js/register.js'), cam = read('assets/js/camera.js'), ctl = read('assets/js/control.js'), css = read('assets/css/equipa.css');
 
 // Ordem de carregamento: base → módulos → app (que inicia o boot).
-const order = ['config', 'boot-guard', 'supabase', 'ui', 'legal', 'register', 'camera', 'control', 'app'].map(n => html.indexOf(`assets/js/${n}.js`));
+const order = ['config', 'boot-guard', 'supabase', 'ui', 'legal', 'settings', 'register', 'camera', 'control', 'app'].map(n => html.indexOf(`assets/js/${n}.js`));
 assert(order.every(i => i > 0) && order.every((v, i) => !i || v > order[i - 1]), 'Scripts fora de ordem no index.html');
 assert(!existsSync(new URL('../assets/js/inventory-021.js', import.meta.url)), 'Módulo antigo de cadastro ainda presente');
 
@@ -42,3 +42,13 @@ assert.match(css, /:root\[data-theme="dark"\]/); assert.match(css, /@media \(max
 for (const c of ['.tabbar', '.board', '.ticket', '.slot', '.cart-panel', '.counter-grid', '.cam-modes']) assert(css.includes(c), `CSS sem ${c}`);
 assert.match(ui, /function openSheet/);
 console.log('Interface 1.0: verificação estática aprovada.');
+
+// 1.1: carrinho com função nova (com volta à antiga), herança de modelo e ajustes.
+const mig = read('supabase/migrations/20261116010000_equipa_1_0_carts_models_settings.sql'), set = read('assets/js/settings.js');
+for (const s of ['public.equipa_save_cart', 'EQUIPA_CART_EQUIPMENT_TAKEN', 'EQUIPA_CART_UNKNOWN_CODES', 'equipa_settings', 'equipa_model_profiles', 'enable row level security']) assert(mig.includes(s), `Migração sem ${s}`);
+assert(!/drop table|truncate|delete from public\.(equipments|withdrawals)/i.test(mig), 'Migração não pode apagar dados');
+assert(ctl.includes('equipa_save_cart') && ctl.includes('save_equipment_cart_v2'), 'Carrinho deve usar a função nova e cair na antiga');
+for (const f of ['inherit', 'specInputs', 'locationDatalist', 'hasSpecs']) assert(set.includes(f), `Ajustes sem ${f}`);
+assert(reg.includes('replaceExisting') && reg.includes('on_existing'), 'Cadastro sem a opção de substituir existentes');
+assert(css.includes('max-width: 2200px') && !/\.view \{[^}]*max-width: 1280px/.test(css), 'Layout deve ocupar telas 16:9');
+console.log('Interface 1.1: carrinho, herança, ajustes e 16:9 aprovados.');
